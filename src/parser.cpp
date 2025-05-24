@@ -65,6 +65,34 @@ namespace tungsten::parser
         return std::nullopt;
     }
 
+    void consume_attribute(Ast* ast, std::vector<Attribute>& attributes)
+    {
+        consume_punctuation(ast->lexer_info, '[');
+        consume_punctuation(ast->lexer_info, '[');
+
+        std::string_view attribute_name = consume_name(ast->lexer_info);
+
+        std::vector<std::string_view> arguments;
+        while (true)
+        {
+            lexer::TokenType next_token_type = lexer::peek_next_token(ast->lexer_info).type;
+
+            if (next_token_type == lexer::TokenType::Name || next_token_type == lexer::TokenType::Number)
+            {
+                arguments.push_back(lexer::get_next_token(ast->lexer_info).str);
+                continue;
+            }
+            break;
+        }
+
+        consume_punctuation(ast->lexer_info, ']');
+        consume_punctuation(ast->lexer_info, ']');
+
+        if (error::had_error()) return;
+
+        attributes.emplace_back(Attribute{ attribute_name, std::move(arguments) });
+    }
+
     void consume_struct(Ast* ast)
     {
         AstNode& struct_node = ast->root_nodes.emplace_back();
@@ -74,10 +102,18 @@ namespace tungsten::parser
         struct_node.node_type = keyword == lexer::Keyword::Struct ? AstNodeType::Struct : AstNodeType::UniformGroup;
         struct_node.name = consume_name(ast->lexer_info);
         consume_punctuation(ast->lexer_info, '{');
+
+        std::vector<Attribute> attributes;
         while (true)
         {
             if (lexer::peek_next_token(ast->lexer_info).type == lexer::TokenType::Punctuation)
             {
+                char punctuation = lexer::peek_next_token(ast->lexer_info).punc;
+                if (punctuation == '[')
+                {
+                    consume_attribute(ast, attributes);
+                    continue;
+                }
                 break;
             }
 
@@ -85,6 +121,8 @@ namespace tungsten::parser
             member_node.node_type = keyword == lexer::Keyword::Struct ? AstNodeType::StructMember : AstNodeType::UniformGroupMember;
             member_node.type = consume_name(ast->lexer_info);
             member_node.name = consume_name(ast->lexer_info);
+            std::swap(attributes, member_node.attributes);
+
             consume_punctuation(ast->lexer_info, ';');
         }
         consume_punctuation(ast->lexer_info, '}');
@@ -117,30 +155,43 @@ namespace tungsten::parser
         Ast* ast = new Ast;
         ast->lexer_info = lexer::init_lexer_info(code);
 
+        std::vector<Attribute> attributes;
+
         bool eof = false;
         while (!eof)
         {
             lexer::Token token = lexer::peek_next_token(ast->lexer_info);
+            bool accepts_attributes = false;
             switch (token.type)
             {
                 case lexer::TokenType::Keyword:
                     if (token.keyword == lexer::Keyword::Struct || token.keyword == lexer::Keyword::UniformGroup)
                     {
                         consume_struct(ast);
+                        accepts_attributes = true;
                     }
                     break;
                 case lexer::TokenType::Punctuation:
-                    if (token.punc != '#')
+                    if (token.punc == '#')
                     {
-                        goto unexpected_token;
+                        consume_macro(ast);
+                        break;
                     }
-                    consume_macro(ast);
-                    break;
+                    if (token.punc == '[')
+                    {
+                        consume_attribute(ast, attributes);
+                        break;
+                    }
+                    goto unexpected_token;
                 case lexer::TokenType::None:
                     eof = true;
                     break;
                 default: unexpected_token:
                     error::report("Unexpected token", token.byte_offset, token.byte_length);
+            }
+            if (accepts_attributes)
+            {
+                std::swap(attributes, ast->root_nodes.back().attributes);
             }
         }
 
@@ -155,21 +206,34 @@ namespace tungsten::parser
 
     void print_ast_node(const Ast* ast, const AstNode* node, int indent)
     {
+        std::string attributes_string;
+        for (const Attribute& attribute : node->attributes)
+        {
+            attributes_string += "[attribute ";
+            attributes_string += attribute.name;
+            for (std::string_view arg : attribute.arguments)
+            {
+                attributes_string += ' ';
+                attributes_string += arg;
+            }
+            attributes_string += "] ";
+        }
+
         std::string indent_string(indent * 4, ' ');
         switch (node->node_type)
         {
             case AstNodeType::Struct:
-                std::cout << indent_string << "struct " << node->name << '\n';
+                std::cout << indent_string << attributes_string << "struct " << node->name << '\n';
                 break;
             case AstNodeType::StructMember:
-                std::cout << indent_string << "struct_member " << node->type << ' ' << node->name << '\n';
+                std::cout << indent_string << attributes_string << "struct_member " << node->type << ' ' << node->name << '\n';
                 break;
 
             case AstNodeType::UniformGroup:
-                std::cout << indent_string << "uniform_group " << node->name << '\n';
+                std::cout << indent_string << attributes_string << "uniform_group " << node->name << '\n';
                 break;
             case AstNodeType::UniformGroupMember:
-                std::cout << indent_string << "uniform_group_member " << node->type << ' ' << node->name << '\n';
+                std::cout << indent_string << attributes_string << "uniform_group_member " << node->type << ' ' << node->name << '\n';
                 break;
 
             case AstNodeType::Macro:
@@ -177,7 +241,7 @@ namespace tungsten::parser
                 break;
 
             default:
-                // TODO: Get byte offse
+                // TODO: Get byte offset
                 error::report("Invalid AstNodeType", 0, 0);
         }
 

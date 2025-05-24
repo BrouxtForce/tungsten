@@ -25,7 +25,7 @@ namespace tungsten::parser
     struct Attribute
     {
         std::string_view name;
-        std::vector<double> arguments;
+        std::vector<std::string_view> arguments;
     };
 
     struct AstNode

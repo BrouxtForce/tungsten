@@ -248,6 +248,7 @@ namespace tungsten::lexer
             {
                 info->stream.read();
                 processed_sign = true;
+                continue;
             }
 
             // TODO: Check for valid characters immediately following the number
