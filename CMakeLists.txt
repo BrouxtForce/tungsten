@@ -9,6 +9,7 @@ add_executable(tungsten
     src/error.cpp
     src/lexer.cpp
     src/main.cpp
+    src/parser.cpp
     src/utility.cpp
 )
 

@@ -11,8 +11,6 @@ namespace tungsten::lexer
         String,
         Number,
         Name,
-        Comment,
-        Whitespace,
         Keyword,
         Punctuation,
         Operator

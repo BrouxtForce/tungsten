@@ -19,10 +19,6 @@ namespace tungsten::lexer
                 return (std::string)"[String \"" + std::string(str) + "\"]";
             case TokenType::Name:
                 return (std::string)"[Name \"" + std::string(str) + "\"]";
-            case TokenType::Comment:
-                return (std::string)"[Comment \"" + std::string(str) + "\"";
-            case TokenType::Whitespace:
-                return "[Whitespace]";
             case TokenType::Keyword: {
                 std::string out =  "[Keyword ";
                 switch (keyword)
@@ -257,10 +253,10 @@ namespace tungsten::lexer
         };
     }
 
-    Token try_read_comment(LexerInfo* info)
+    bool try_read_comment(LexerInfo* info)
     {
         // TODO
-        return { .type = TokenType::None };
+        return false;
     }
 
     Token read_punctuation(LexerInfo* info)
@@ -308,7 +304,7 @@ namespace tungsten::lexer
         return Token { .str = view, .type = TokenType::Operator };
     }
 
-    Token read_whitespace(LexerInfo* info)
+    void read_whitespace(LexerInfo* info)
     {
         uint32_t start_index = info->stream.byte;
         do
@@ -316,12 +312,6 @@ namespace tungsten::lexer
             info->stream.read();
         }
         while (!info->stream.eof() && is_whitespace(info->stream.peek()));
-
-        uint32_t end_index = info->stream.byte;
-        return Token {
-            .str = info->stream.string_view().substr(start_index, end_index - start_index),
-            .type = TokenType::Whitespace
-        };
     }
 
     Token get_next_token(LexerInfo* info)
@@ -340,14 +330,14 @@ namespace tungsten::lexer
         char c = info->stream.peek();
         if (is_whitespace(c))
         {
-            return read_whitespace(info);
+            read_whitespace(info);
+            return get_next_token(info);
         }
         if (is_maybe_comment(c))
         {
-            Token token = try_read_comment(info);
-            if (token.type == TokenType::Comment)
+            if (try_read_comment(info))
             {
-                return token;
+                return get_next_token(info);
             }
         }
         if (is_string(c))

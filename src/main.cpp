@@ -6,6 +6,7 @@
 #include "lexer.hpp"
 #include "utility.hpp"
 #include "error.hpp"
+#include "parser.hpp"
 
 struct Arguments {
     int index = 1;
@@ -96,17 +97,12 @@ int main(int argc, char** argv)
         using namespace tungsten;
 
         std::string code = utility::read_file(input_filepath);
-        lexer::LexerInfo* info = lexer::init_lexer_info(code);
         error::init_error_info(input_filepath, code);
 
-        while (!lexer::eof(info))
-        {
-            lexer::Token token = lexer::get_next_token(info);
-            std::cout << token.to_string() << std::endl;
-            if (token.type == lexer::TokenType::None) __builtin_debugtrap();
-        }
+        parser::Ast* ast = parser::generate_ast(code);
+        parser::print_ast(ast);
 
-        lexer::free_lexer_info(info);
+        parser::free_ast(ast);
     }
 
     return EXIT_SUCCESS;
