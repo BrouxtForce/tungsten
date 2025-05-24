@@ -121,6 +121,12 @@ namespace tungsten::parser
             member_node.node_type = keyword == lexer::Keyword::Struct ? AstNodeType::StructMember : AstNodeType::UniformGroupMember;
             member_node.type = consume_name(ast->lexer_info);
             member_node.name = consume_name(ast->lexer_info);
+
+            lexer::Token peeked_token = lexer::peek_next_token(ast->lexer_info);
+            if (peeked_token.type == lexer::TokenType::Punctuation && peeked_token.punc == '[')
+            {
+                consume_attribute(ast, attributes);
+            }
             std::swap(attributes, member_node.attributes);
 
             consume_punctuation(ast->lexer_info, ';');
