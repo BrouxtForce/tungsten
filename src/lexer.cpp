@@ -1,9 +1,8 @@
 #include "lexer.hpp"
+#include "error.hpp"
 
-#include <cctype>
 #include <string>
 #include <cassert>
-#include <iostream>
 #include <array>
 
 namespace tungsten::lexer
@@ -56,8 +55,6 @@ namespace tungsten::lexer
     {
         std::string input;
         uint32_t byte = 0;
-        uint32_t line = 1;
-        uint32_t column = 1;
 
         CharacterStream(const std::string& code)
             : input(code) {}
@@ -71,17 +68,7 @@ namespace tungsten::lexer
         char read()
         {
             assert(byte < input.size());
-            char out = input[byte];
-
-            byte++;
-            if (out == '\n')
-            {
-                line++;
-                column = 0;
-            }
-            column++;
-
-            return out;
+            return input[byte++];
         }
 
         bool eof()
@@ -206,8 +193,7 @@ namespace tungsten::lexer
             }
             if (c == '\n')
             {
-                // TODO: Handle error
-                std::cerr << "Invalid newline in string\n";
+                error::report("Unexpected newline in string", info->stream.byte);
             }
         }
         while (!info->stream.eof());
@@ -316,9 +302,7 @@ namespace tungsten::lexer
 
         if (!is_valid_operator)
         {
-            std::cerr << "Invalid operator '" << view << "'\n";
-            // TODO: Graceful error handling
-            assert(false);
+            error::report("Invalid operator '" + (std::string)view + "'", info->stream.byte);
         }
 
         return Token { .str = view, .type = TokenType::Operator };
@@ -387,7 +371,8 @@ namespace tungsten::lexer
             return read_operator(info);
         }
 
-        std::cerr << "Invalid character: '" << info->stream.read() << "'\n";
+        char invalid_character = info->stream.read();
+        error::report("Invalid character: '" + std::string(1, invalid_character) + "'", info->stream.byte);
 
         return Token { .type = TokenType::None };
     }

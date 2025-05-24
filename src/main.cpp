@@ -5,6 +5,7 @@
 
 #include "lexer.hpp"
 #include "utility.hpp"
+#include "error.hpp"
 
 struct Arguments {
     int index = 1;
@@ -96,6 +97,7 @@ int main(int argc, char** argv)
 
         std::string code = utility::read_file(input_filepath);
         lexer::LexerInfo* info = lexer::init_lexer_info(code);
+        error::init_error_info(input_filepath, code);
 
         while (!lexer::eof(info))
         {

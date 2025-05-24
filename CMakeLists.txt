@@ -6,6 +6,7 @@ add_compile_options(-Wall -Wextra -Wpedantic -Wimplicit-fallthrough)
 project(Tungsten)
 
 add_executable(tungsten
+    src/error.cpp
     src/lexer.cpp
     src/main.cpp
     src/utility.cpp
