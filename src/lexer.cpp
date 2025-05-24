@@ -139,15 +139,17 @@ namespace tungsten::lexer
 
     Token read_name_or_keyword(LexerInfo* info)
     {
-        uint32_t start_index = info->stream.byte;
+        Token out{};
+
+        out.byte_offset = info->stream.byte;
         do
         {
             info->stream.read();
         }
         while (!info->stream.eof() && (is_name_or_keyword(info->stream.peek()) || std::isdigit(info->stream.peek())));
 
-        uint32_t end_index = info->stream.byte;
-        std::string_view name = info->stream.string_view().substr(start_index, end_index - start_index);
+        out.byte_length = info->stream.byte - out.byte_offset;
+        std::string_view name = info->stream.string_view().substr(out.byte_offset, out.byte_length);
 
         Keyword keyword = Keyword::None;
 
@@ -164,21 +166,20 @@ namespace tungsten::lexer
 
         if (keyword == Keyword::None)
         {
-            return Token {
-                .str = name,
-                .type = TokenType::Name
-            };
+            out.str = name;
+            out.type = TokenType::Name;
+            return out;
         }
-        return Token {
-            .keyword = keyword,
-            .type = TokenType::Keyword
-        };
+
+        out.keyword = keyword;
+        out.type = TokenType::Keyword;
+        return out;
     }
 
     Token read_string(LexerInfo* info)
     {
-        info->stream.read();
-        uint32_t start_index = info->stream.byte;
+        Token out{};
+        out.byte_offset = info->stream.byte;
 
         do
         {
@@ -189,23 +190,24 @@ namespace tungsten::lexer
             }
             if (c == '\n')
             {
-                error::report("Unexpected newline in string", info->stream.byte);
+                error::report("Unexpected newline in string", info->stream.byte, 1);
             }
         }
         while (!info->stream.eof());
 
-        uint32_t end_index = info->stream.byte - 1;
-        return Token {
-            .str = info->stream.string_view().substr(start_index, end_index - start_index),
-            .type = TokenType::String
-        };
+        out.byte_length = info->stream.byte - out.byte_offset;
+        out.str = info->stream.string_view().substr(out.byte_offset + 1, out.byte_length - 2);
+        out.type = TokenType::String;
+
+        return out;
     }
 
     Token read_number(LexerInfo* info)
     {
         // TODO: Support leading decimal point (e.g. .1) and float suffixes (i.e. f and h)
 
-        uint32_t start_index = info->stream.byte;
+        Token out{};
+        out.byte_offset = info->stream.byte;
 
         // The + or - sign will be eaten as a unary operator, so it only becomes relevant in the exponent part of a number
         bool processed_sign = true;
@@ -246,11 +248,11 @@ namespace tungsten::lexer
         }
         while (!info->stream.eof());
 
-        uint32_t end_index = info->stream.byte;
-        return Token {
-            .str = info->stream.string_view().substr(start_index, end_index - start_index),
-            .type = TokenType::Number
-        };
+        out.byte_length = info->stream.byte - out.byte_offset;
+        out.str = info->stream.string_view().substr(out.byte_offset, out.byte_length);
+        out.type = TokenType::Number;
+
+        return out;
     }
 
     bool try_read_comment(LexerInfo* info)
@@ -262,6 +264,8 @@ namespace tungsten::lexer
     Token read_punctuation(LexerInfo* info)
     {
         return Token {
+            .byte_offset = info->stream.byte,
+            .byte_length = 1,
             .type = TokenType::Punctuation,
             .punc = info->stream.read()
         };
@@ -269,15 +273,17 @@ namespace tungsten::lexer
 
     Token read_operator(LexerInfo* info)
     {
-        uint32_t start_index = info->stream.byte;
+        Token out{};
+
+        out.byte_offset = info->stream.byte;
         do
         {
             info->stream.read();
         }
         while (!info->stream.eof() && is_operator(info->stream.peek()));
 
-        uint32_t end_index = info->stream.byte;
-        std::string_view view = info->stream.string_view().substr(start_index, end_index - start_index);
+        out.byte_length = info->stream.byte - out.byte_offset;
+        std::string_view view = info->stream.string_view().substr(out.byte_offset, out.byte_length);
 
         constexpr std::array<std::string_view, 21> valid_operators {
             "+", "-", "*", "/", "+=", "-=", "*=", "/=", "=",
@@ -298,15 +304,17 @@ namespace tungsten::lexer
 
         if (!is_valid_operator)
         {
-            error::report("Invalid operator '" + (std::string)view + "'", info->stream.byte);
+            error::report("Invalid operator '" + (std::string)view + "'", out.byte_offset, out.byte_length);
         }
 
-        return Token { .str = view, .type = TokenType::Operator };
+        out.str = view;
+        out.type = TokenType::Operator;
+
+        return out;
     }
 
     void read_whitespace(LexerInfo* info)
     {
-        uint32_t start_index = info->stream.byte;
         do
         {
             info->stream.read();
@@ -362,7 +370,7 @@ namespace tungsten::lexer
         }
 
         char invalid_character = info->stream.read();
-        error::report("Invalid character: '" + std::string(1, invalid_character) + "'", info->stream.byte);
+        error::report("Invalid character: '" + std::string(1, invalid_character) + "'", info->stream.byte, 1);
 
         return Token { .type = TokenType::None };
     }

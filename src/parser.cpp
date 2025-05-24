@@ -23,8 +23,7 @@ namespace tungsten::parser
             }
         }
 
-        // TODO: Get byte offset
-        error::report("Unexpected token", 0);
+        error::report("Unexpected token", token.byte_offset, token.byte_length);
 
         return lexer::Keyword::None;
     }
@@ -38,8 +37,7 @@ namespace tungsten::parser
             return;
         }
 
-        // TODO: Get byte offset
-        error::report("Unexpected token", 0);
+        error::report("Unexpected token", token.byte_offset, token.byte_length);
     }
 
     std::string_view consume_name(lexer::LexerInfo* info)
@@ -51,8 +49,7 @@ namespace tungsten::parser
             return token.str;
         }
 
-        // TODO: Get byte offset
-        error::report("Unexpected token", 0);
+        error::report("Unexpected token", token.byte_offset, token.byte_length);
         return "__unknown";
     }
 
@@ -105,8 +102,7 @@ namespace tungsten::parser
                     eof = true;
                     break;
                 default:
-                    // TODO: Get location of token
-                    error::report("Unexpected token", 0);
+                    error::report("Unexpected token", token.byte_offset, token.byte_length);
             }
         }
 
@@ -140,7 +136,7 @@ namespace tungsten::parser
 
             default:
                 // TODO: Get byte offse
-                error::report("Invalid AstNodeType", 0);
+                error::report("Invalid AstNodeType", 0, 0);
         }
 
         for (uint16_t i = node->child_offset; i < node->child_offset + node->num_children; i++)

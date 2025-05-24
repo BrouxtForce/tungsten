@@ -34,13 +34,16 @@ namespace tungsten::lexer
 
     struct Token
     {
+        uint32_t byte_offset = 0;
+        uint32_t byte_length = 0;
+
         union
         {
             std::string_view str;
             Keyword keyword;
             char punc;
         };
-        TokenType type;
+        TokenType type = TokenType::None;
 
         std::string to_string();
     };
