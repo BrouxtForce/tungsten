@@ -4,6 +4,7 @@
 #include <string>
 #include <cassert>
 #include <iostream>
+#include <array>
 
 namespace tungsten::lexer
 {
@@ -45,38 +46,7 @@ namespace tungsten::lexer
             case TokenType::Punctuation:
                 return (std::string)"[Punctuation '" + std::string(1, punc) + "']";
             case TokenType::Operator: {
-                std::string out = "[Operator ";
-                switch (op)
-                {
-                    case Operator::Assignment:         out += "assign"; break;
-                    case Operator::AssignmentAdd:      out += "assign_add"; break;
-                    case Operator::AssignmentSubtract: out += "assign_subtract"; break;
-                    case Operator::AssignmentMultiply: out += "assign_multiply"; break;
-                    case Operator::AssignmentDivide:   out += "assign_divide"; break;
-
-                    case Operator::Add:      out += "add"; break;
-                    case Operator::Subtract: out += "sub"; break;
-                    case Operator::Multiply: out += "mul"; break;
-                    case Operator::Divide:   out += "div"; break;
-
-                    case Operator::LessThan:           out += "lt"; break;
-                    case Operator::LessThanOrEqual:    out += "lte"; break;
-                    case Operator::Equal:              out += "eq"; break;
-                    case Operator::GreaterThan:        out += "gt"; break;
-                    case Operator::GreaterThanOrEqual: out += "gte"; break;
-
-                    case Operator::And: out += "and"; break;
-                    case Operator::Or:  out += "or"; break;
-                    case Operator::Not: out += "not"; break;
-
-                    case Operator::BitAnd: out += "bitand"; break;
-                    case Operator::BitOr:  out += "bitor"; break;
-                    case Operator::BitNot: out += "bitnot"; break;
-                    case Operator::BitXor: out += "bitxor"; break;
-
-                    default: out += "invalid " + std::to_string((int)op);
-                }
-                return out + "]";
+                return "[Operator " + (std::string)str + "]";
             };
         }
         return "[Invalid Token]";
@@ -327,42 +297,31 @@ namespace tungsten::lexer
         uint32_t end_index = info->stream.byte;
         std::string_view view = info->stream.string_view().substr(start_index, end_index - start_index);
 
-        Operator op = Operator::None;
+        constexpr std::array<std::string_view, 21> valid_operators {
+            "+", "-", "*", "/", "+=", "-=", "*=", "/=", "=",
+            "<", "<=", "==", ">=", ">",
+            "&&", "||", "!",
+            "&", "|", "~", "^",
+        };
 
-        if (view == "+") op = Operator::Add;
-        if (view == "-") op = Operator::Subtract;
-        if (view == "*") op = Operator::Multiply;
-        if (view == "/") op = Operator::Divide;
+        bool is_valid_operator = false;
+        for (std::string_view valid_operator : valid_operators)
+        {
+            if (view == valid_operator)
+            {
+                is_valid_operator = true;
+                break;
+            }
+        }
 
-        if (view == "=")  op = Operator::Assignment;
-        if (view == "+=") op = Operator::AssignmentAdd;
-        if (view == "-=") op = Operator::AssignmentSubtract;
-        if (view == "*=") op = Operator::AssignmentMultiply;
-        if (view == "/=") op = Operator::AssignmentDivide;
-
-        if (view == "<")  op = Operator::LessThan;
-        if (view == "<=") op = Operator::LessThanOrEqual;
-        if (view == "==") op = Operator::Equal;
-        if (view == ">")  op = Operator::GreaterThan;
-        if (view == ">=") op = Operator::GreaterThanOrEqual;
-
-        if (view == "&&") op = Operator::Add;
-        if (view == "||") op = Operator::Or;
-        if (view == "!")  op = Operator::Not;
-
-        if (view == "&") op = Operator::BitAnd;
-        if (view == "|") op = Operator::BitOr;
-        if (view == "~") op = Operator::BitNot;
-        if (view == "^") op = Operator::BitXor;
-
-        if (op == Operator::None)
+        if (!is_valid_operator)
         {
             std::cerr << "Invalid operator '" << view << "'\n";
             // TODO: Graceful error handling
             assert(false);
         }
 
-        return Token { .op = op, .type = TokenType::Operator };
+        return Token { .str = view, .type = TokenType::Operator };
     }
 
     Token read_whitespace(LexerInfo* info)

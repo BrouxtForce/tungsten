@@ -34,39 +34,6 @@ namespace tungsten::lexer
         Return
     };
 
-    enum class Operator
-    {
-        None,
-
-        Assignment,
-        AssignmentAdd,
-        AssignmentSubtract,
-        AssignmentMultiply,
-        AssignmentDivide,
-
-        // TODO: Bitwise assignments?
-
-        Add,
-        Subtract,
-        Multiply,
-        Divide,
-
-        LessThan,
-        LessThanOrEqual,
-        Equal,
-        GreaterThan,
-        GreaterThanOrEqual,
-
-        And,
-        Or,
-        Not,
-
-        BitAnd,
-        BitOr,
-        BitNot,
-        BitXor
-    };
-
     struct Token
     {
         union
@@ -74,7 +41,6 @@ namespace tungsten::lexer
             std::string_view str;
             Keyword keyword;
             char punc;
-            Operator op;
         };
         TokenType type;
 
