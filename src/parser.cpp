@@ -4,6 +4,7 @@
 
 #include <array>
 #include <iostream>
+#include <optional>
 
 namespace tungsten::parser
 {
@@ -53,6 +54,17 @@ namespace tungsten::parser
         return "__unknown";
     }
 
+    std::optional<std::string_view> try_consume_string(lexer::LexerInfo* info)
+    {
+        lexer::Token token = lexer::peek_next_token(info);
+        if (token.type == lexer::TokenType::String)
+        {
+            lexer::get_next_token(info);
+            return token.str;
+        }
+        return std::nullopt;
+    }
+
     void consume_struct(Ast* ast)
     {
         AstNode& struct_node = ast->root_nodes.emplace_back();
@@ -81,6 +93,25 @@ namespace tungsten::parser
         struct_node.num_children = ast->child_nodes.size() - struct_node.child_offset;
     }
 
+    void consume_macro(Ast* ast)
+    {
+        AstNode& macro_node = ast->root_nodes.emplace_back();
+        macro_node.node_type = AstNodeType::Macro;
+
+        consume_punctuation(ast->lexer_info, '#');
+        macro_node.macro_name = consume_name(ast->lexer_info);
+
+        std::optional<std::string_view> macro_arg = try_consume_string(ast->lexer_info);
+        // TODO: Special handling to ensure string and non-string arguments are paired together with macros properly
+        if (macro_arg.has_value())
+        {
+            macro_node.macro_arg = macro_arg.value();
+        }
+        else {
+            macro_node.macro_arg = consume_name(ast->lexer_info);
+        }
+    }
+
     Ast* generate_ast(std::string_view code)
     {
         Ast* ast = new Ast;
@@ -98,10 +129,17 @@ namespace tungsten::parser
                         consume_struct(ast);
                     }
                     break;
+                case lexer::TokenType::Punctuation:
+                    if (token.punc != '#')
+                    {
+                        goto unexpected_token;
+                    }
+                    consume_macro(ast);
+                    break;
                 case lexer::TokenType::None:
                     eof = true;
                     break;
-                default:
+                default: unexpected_token:
                     error::report("Unexpected token", token.byte_offset, token.byte_length);
             }
         }
@@ -132,6 +170,10 @@ namespace tungsten::parser
                 break;
             case AstNodeType::UniformGroupMember:
                 std::cout << indent_string << "uniform_group_member " << node->type << ' ' << node->name << '\n';
+                break;
+
+            case AstNodeType::Macro:
+                std::cout << indent_string << "macro " << node->macro_name << ' ' << node->macro_arg << '\n';
                 break;
 
             default:

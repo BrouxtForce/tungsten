@@ -181,6 +181,7 @@ namespace tungsten::lexer
         Token out{};
         out.byte_offset = info->stream.byte;
 
+        info->stream.read();
         do
         {
             char c = info->stream.read();

@@ -17,7 +17,9 @@ namespace tungsten::parser
         StructMember,
 
         UniformGroup,
-        UniformGroupMember
+        UniformGroupMember,
+
+        Macro
     };
 
     struct Attribute
@@ -28,11 +30,21 @@ namespace tungsten::parser
 
     struct AstNode
     {
+        inline AstNode() {
+            std::memset(this, 0, sizeof(*this));
+        }
+
         AstNodeType node_type = AstNodeType::None;
         std::vector<Attribute> attributes;
 
-        std::string_view type;
-        std::string_view name;
+        union {
+            std::string_view type;
+            std::string_view macro_name;
+        };
+        union {
+            std::string_view name;
+            std::string_view macro_arg;
+        };
 
         uint16_t child_offset = 0;
         uint16_t num_children = 0;
