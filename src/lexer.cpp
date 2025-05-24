@@ -61,6 +61,12 @@ namespace tungsten::lexer
             return input[byte];
         }
 
+        char peek(uint32_t offset)
+        {
+            assert(byte + offset < input.size());
+            return input[byte + offset];
+        }
+
         char read()
         {
             assert(byte < input.size());
@@ -258,7 +264,39 @@ namespace tungsten::lexer
 
     bool try_read_comment(LexerInfo* info)
     {
-        // TODO
+        char comment_type = info->stream.peek(1);
+        if (comment_type == '/')
+        {
+            info->stream.read();
+            info->stream.read();
+            while (true)
+            {
+                char c = info->stream.read();
+                if (c == '\n')
+                {
+                    break;
+                }
+            }
+            return true;
+        }
+        else if (comment_type == '*')
+        {
+            info->stream.read();
+            info->stream.read();
+            while (true)
+            {
+                char c = info->stream.read();
+                if (c == '*')
+                {
+                    if (info->stream.peek() == '/')
+                    {
+                        info->stream.read();
+                        break;
+                    }
+                }
+            }
+            return true;
+        }
         return false;
     }
 
