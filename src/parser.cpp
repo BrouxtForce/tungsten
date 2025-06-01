@@ -5,6 +5,7 @@
 #include <array>
 #include <iostream>
 #include <optional>
+#include <cassert>
 
 namespace tungsten::parser
 {
@@ -93,6 +94,20 @@ namespace tungsten::parser
         attributes.emplace_back(Attribute{ attribute_name, std::move(arguments) });
     }
 
+    void try_consume_attributes(Ast* ast, std::vector<Attribute>& attributes)
+    {
+        while (true)
+        {
+            lexer::Token token = lexer::peek_next_token(ast->lexer_info);
+            if (token.type != lexer::TokenType::Punctuation || token.punc != '[')
+            {
+                break;
+            }
+
+            consume_attribute(ast, attributes);
+        }
+    }
+
     void consume_struct(Ast* ast)
     {
         AstNode& struct_node = ast->root_nodes.emplace_back();
@@ -156,6 +171,49 @@ namespace tungsten::parser
         }
     }
 
+    void consume_function(Ast* ast)
+    {
+        AstNode& function_node = ast->root_nodes.emplace_back();
+        function_node.node_type = AstNodeType::Function;
+        function_node.child_offset = ast->child_nodes.size();
+
+        function_node.type = consume_name(ast->lexer_info);
+        function_node.name = consume_name(ast->lexer_info);
+
+        consume_punctuation(ast->lexer_info, '(');
+        while (true)
+        {
+            lexer::Token token = lexer::peek_next_token(ast->lexer_info);
+            if (token.type == lexer::TokenType::Punctuation && token.punc == ')')
+            {
+                break;
+            }
+
+            AstNode& arg_node = ast->child_nodes.emplace_back();
+            arg_node.node_type = AstNodeType::FunctionArg;
+
+            try_consume_attributes(ast, arg_node.attributes);
+            arg_node.type = consume_name(ast->lexer_info);
+            arg_node.name = consume_name(ast->lexer_info);
+            try_consume_attributes(ast, arg_node.attributes);
+
+            token = lexer::peek_next_token(ast->lexer_info);
+            if (token.type == lexer::TokenType::Punctuation && token.punc == ',')
+            {
+                lexer::get_next_token(ast->lexer_info);
+                continue;
+            }
+            break;
+        }
+        consume_punctuation(ast->lexer_info, ')');
+
+        consume_punctuation(ast->lexer_info, '{');
+        // TODO: Consume expressions
+        consume_punctuation(ast->lexer_info, '}');
+
+        function_node.num_children = ast->child_nodes.size() - function_node.child_offset;
+    }
+
     Ast* generate_ast(std::string_view code)
     {
         Ast* ast = new Ast;
@@ -171,11 +229,8 @@ namespace tungsten::parser
             switch (token.type)
             {
                 case lexer::TokenType::Keyword:
-                    if (token.keyword == lexer::Keyword::Struct || token.keyword == lexer::Keyword::UniformGroup)
-                    {
-                        consume_struct(ast);
-                        accepts_attributes = true;
-                    }
+                    consume_struct(ast);
+                    accepts_attributes = true;
                     break;
                 case lexer::TokenType::Punctuation:
                     if (token.punc == '#')
@@ -189,10 +244,15 @@ namespace tungsten::parser
                         break;
                     }
                     goto unexpected_token;
+                case lexer::TokenType::Name:
+                    consume_function(ast);
+                    accepts_attributes = true;
+                    break;
                 case lexer::TokenType::None:
                     eof = true;
                     break;
                 default: unexpected_token:
+                    lexer::get_next_token(ast->lexer_info);
                     error::report("Unexpected token", token.byte_offset, token.byte_length);
             }
             if (accepts_attributes)
@@ -243,7 +303,15 @@ namespace tungsten::parser
                 break;
 
             case AstNodeType::Macro:
+                assert(attributes_string.empty());
                 std::cout << indent_string << "macro " << node->macro_name << ' ' << node->macro_arg << '\n';
+                break;
+
+            case AstNodeType::Function:
+                std::cout << indent_string << attributes_string << "function " << node->type << ' ' << node->name << '\n';
+                break;
+            case AstNodeType::FunctionArg:
+                std::cout << indent_string << attributes_string << "function_arg " << node->type << ' ' << node->name << '\n';
                 break;
 
             default:

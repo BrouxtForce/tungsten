@@ -19,7 +19,10 @@ namespace tungsten::parser
         UniformGroup,
         UniformGroupMember,
 
-        Macro
+        Macro,
+
+        Function,
+        FunctionArg
     };
 
     struct Attribute
