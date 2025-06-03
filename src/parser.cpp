@@ -42,15 +42,24 @@ namespace tungsten::parser
         error::report("Unexpected token", token.byte_offset, token.byte_length);
     }
 
-    void consume_operator(lexer::LexerInfo* info, std::string_view op)
+    bool try_consume_operator(lexer::LexerInfo* info, std::string_view op)
     {
         lexer::Token token = lexer::peek_next_token(info);
         if (token.type == lexer::TokenType::Operator && token.str == op)
         {
             lexer::get_next_token(info);
+            return true;
+        }
+        return false;
+    }
+
+    void consume_operator(lexer::LexerInfo* info, std::string_view op)
+    {
+        if (try_consume_operator(info, op))
+        {
             return;
         }
-
+        lexer::Token token = lexer::peek_next_token(info);
         error::report("Unexpected token", token.byte_offset, token.byte_length);
     }
 
@@ -341,7 +350,12 @@ namespace tungsten::parser
         decl_node.type = type;
         decl_node.name = consume_name(ast->lexer_info);
 
-        consume_operator(ast->lexer_info, "=");
+        if (!try_consume_operator(ast->lexer_info, "="))
+        {
+            // Uninitialized variable
+            consume_punctuation(ast->lexer_info, ';');
+            return;
+        }
         consume_expression(ast);
         consume_punctuation(ast->lexer_info, ';');
 
@@ -489,56 +503,57 @@ namespace tungsten::parser
         switch (node->node_type)
         {
             case AstNodeType::Struct:
-                std::cout << "struct " << node->name << '\n';
+                std::cout << "struct " << node->name;
                 break;
             case AstNodeType::StructMember:
-                std::cout << "struct_member " << node->type << ' ' << node->name << '\n';
+                std::cout << "struct_member " << node->type << ' ' << node->name;
                 break;
 
             case AstNodeType::UniformGroup:
-                std::cout << "uniform_group " << node->name << '\n';
+                std::cout << "uniform_group " << node->name;
                 break;
             case AstNodeType::UniformGroupMember:
-                std::cout << "uniform_group_member " << node->type << ' ' << node->name << '\n';
+                std::cout << "uniform_group_member " << node->type << ' ' << node->name;
                 break;
 
             case AstNodeType::Macro:
-                std::cout << "macro " << node->macro_name << ' ' << node->macro_arg << '\n';
+                std::cout << "macro " << node->macro_name << ' ' << node->macro_arg;
                 break;
 
             case AstNodeType::Function:
-                std::cout << "function " << node->type << ' ' << node->name << '\n';
+                std::cout << "function " << node->type << ' ' << node->name;
                 break;
             case AstNodeType::FunctionArg:
-                std::cout << "function_arg " << node->type << ' ' << node->name << '\n';
+                std::cout << "function_arg " << node->type << ' ' << node->name;
                 break;
 
             case AstNodeType::VariableDeclaration:
-                std::cout << "variable_declaration " << node->type << ' ' << node->name << '\n';
+                std::cout << "variable_declaration " << node->type << ' ' << node->name;
                 break;
             case AstNodeType::Expression:
-                std::cout << "expression\n";
+                std::cout << "expression";
                 break;
             case AstNodeType::NumericLiteral:
-                std::cout << "numeric_literal " << node->num_str << '\n';
+                std::cout << "numeric_literal " << node->num_str;
                 break;
             case AstNodeType::UnaryOperation:
-                std::cout << "unary_operation " << node->operation << '\n';
+                std::cout << "unary_operation " << node->operation;
                 break;
             case AstNodeType::BinaryOperation:
-                std::cout << "binary_operation " << node->operation << '\n';
+                std::cout << "binary_operation " << node->operation;
                 break;
             case AstNodeType::Variable:
-                std::cout << "variable " << node->name << '\n';
+                std::cout << "variable " << node->name;
                 break;
             case AstNodeType::FunctionCall:
-                std::cout << "function_call " << node->name << '\n';
+                std::cout << "function_call " << node->name;
                 break;
 
             default:
                 // TODO: Get byte offset
                 error::report("Invalid AstNodeType", 0, 0);
         }
+        std::cout << '\n';
 
         // Note: This assumes that all children of a parent are found immediatley after that parent
         for (uint16_t i = node->child_offset; i < node->child_offset + node->num_children; i++)
