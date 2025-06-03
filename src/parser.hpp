@@ -28,7 +28,9 @@ namespace tungsten::parser
         Expression,
         NumericLiteral,
         UnaryOperation,
-        BinaryOperation
+        BinaryOperation,
+        Variable,
+        FunctionCall
     };
 
     struct Attribute

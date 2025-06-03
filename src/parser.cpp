@@ -249,6 +249,8 @@ namespace tungsten::parser
         error::report("Unexpected operator", token.byte_offset, token.byte_length);
     }
 
+    void consume_variable_or_function_call(Ast* ast);
+
     void consume_expression(Ast* ast)
     {
         AstNode& expression_node = ast->child_nodes.emplace_back();
@@ -266,12 +268,17 @@ namespace tungsten::parser
                     consume_numeric_literal(ast);
                     should_consume_binary_operation = true;
                     continue;
+                case lexer::TokenType::Name:
+                    error::check(!should_consume_binary_operation, "Expected operator", token.byte_offset, token.byte_length);
+                    consume_variable_or_function_call(ast);
+                    should_consume_binary_operation = true;
+                    continue;
                 case lexer::TokenType::Operator:
                     consume_operation(ast, should_consume_binary_operation);
                     should_consume_binary_operation = false;
                     continue;
                 case lexer::TokenType::Punctuation: {
-                    if (token.punc == ';' || token.punc == ')')
+                    if (token.punc == ';' || token.punc == ')' || token.punc == ',')
                     {
                         break;
                     }
@@ -287,6 +294,42 @@ namespace tungsten::parser
         }
 
         expression_node.num_children = ast->child_nodes.size() - expression_node.child_offset;
+    }
+
+    void consume_variable_or_function_call(Ast* ast)
+    {
+        std::string_view name = consume_name(ast->lexer_info);
+
+        lexer::Token peeked_token = lexer::peek_next_token(ast->lexer_info);
+        if (peeked_token.type == lexer::TokenType::Punctuation && peeked_token.punc == '(')
+        {
+            // Consume function call
+            AstNode& function_call_node = ast->child_nodes.emplace_back();
+            function_call_node.node_type = AstNodeType::FunctionCall;
+            function_call_node.child_offset = ast->child_nodes.size();
+            function_call_node.name = name;
+
+            consume_punctuation(ast->lexer_info, '(');
+            while (true)
+            {
+                lexer::Token token = lexer::peek_next_token(ast->lexer_info);
+                if (token.type == lexer::TokenType::Punctuation)
+                {
+                    if (token.punc == ')') break;
+                    consume_punctuation(ast->lexer_info, ',');
+                }
+                consume_expression(ast);
+            }
+            consume_punctuation(ast->lexer_info, ')');
+
+            function_call_node.num_children = ast->child_nodes.size() - function_call_node.child_offset;
+            return;
+        }
+
+        // Consume variable
+        AstNode& variable_node = ast->child_nodes.emplace_back();
+        variable_node.node_type = AstNodeType::Variable;
+        variable_node.name = name;
     }
 
     void consume_variable_declaration(Ast* ast, std::string_view type)
@@ -484,6 +527,12 @@ namespace tungsten::parser
                 break;
             case AstNodeType::BinaryOperation:
                 std::cout << "binary_operation " << node->operation << '\n';
+                break;
+            case AstNodeType::Variable:
+                std::cout << "variable " << node->name << '\n';
+                break;
+            case AstNodeType::FunctionCall:
+                std::cout << "function_call " << node->name << '\n';
                 break;
 
             default:
