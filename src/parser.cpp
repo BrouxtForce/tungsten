@@ -373,59 +373,52 @@ namespace tungsten::parser
 
     void print_ast_node(const Ast* ast, const AstNode* node, int indent)
     {
-        std::string attributes_string;
+        std::cout << std::string(indent * 4, ' ');
         for (const Attribute& attribute : node->attributes)
         {
-            attributes_string += "[attribute ";
-            attributes_string += attribute.name;
+            std::cout << "[attribute " << attribute.name;
             for (std::string_view arg : attribute.arguments)
             {
-                attributes_string += ' ';
-                attributes_string += arg;
+                std::cout << ' ' << arg;
             }
-            attributes_string += "] ";
+            std::cout << "] ";
         }
 
-        std::string indent_string(indent * 4, ' ');
         switch (node->node_type)
         {
             case AstNodeType::Struct:
-                std::cout << indent_string << attributes_string << "struct " << node->name << '\n';
+                std::cout << "struct " << node->name << '\n';
                 break;
             case AstNodeType::StructMember:
-                std::cout << indent_string << attributes_string << "struct_member " << node->type << ' ' << node->name << '\n';
+                std::cout << "struct_member " << node->type << ' ' << node->name << '\n';
                 break;
 
             case AstNodeType::UniformGroup:
-                std::cout << indent_string << attributes_string << "uniform_group " << node->name << '\n';
+                std::cout << "uniform_group " << node->name << '\n';
                 break;
             case AstNodeType::UniformGroupMember:
-                std::cout << indent_string << attributes_string << "uniform_group_member " << node->type << ' ' << node->name << '\n';
+                std::cout << "uniform_group_member " << node->type << ' ' << node->name << '\n';
                 break;
 
             case AstNodeType::Macro:
-                assert(attributes_string.empty());
-                std::cout << indent_string << "macro " << node->macro_name << ' ' << node->macro_arg << '\n';
+                std::cout << "macro " << node->macro_name << ' ' << node->macro_arg << '\n';
                 break;
 
             case AstNodeType::Function:
-                std::cout << indent_string << attributes_string << "function " << node->type << ' ' << node->name << '\n';
+                std::cout << "function " << node->type << ' ' << node->name << '\n';
                 break;
             case AstNodeType::FunctionArg:
-                std::cout << indent_string << attributes_string << "function_arg " << node->type << ' ' << node->name << '\n';
+                std::cout << "function_arg " << node->type << ' ' << node->name << '\n';
                 break;
 
             case AstNodeType::VariableDeclaration:
-                assert(attributes_string.empty());
-                std::cout << indent_string << "variable_declaration " << node->type << ' ' << node->name << '\n';
+                std::cout << "variable_declaration " << node->type << ' ' << node->name << '\n';
                 break;
             case AstNodeType::Expression:
-                assert(attributes_string.empty());
-                std::cout << indent_string << "expression\n";
+                std::cout << "expression\n";
                 break;
             case AstNodeType::NumericLiteral:
-                assert(attributes_string.empty());
-                std::cout << indent_string << "numeric_literal " << node->num_str << '\n';
+                std::cout << "numeric_literal " << node->num_str << '\n';
                 break;
 
             default:
