@@ -2,7 +2,7 @@
 
 #include <string_view>
 #include <array>
-#include <vector>
+#include <deque>
 #include <memory>
 
 #include "lexer.hpp"
@@ -22,7 +22,11 @@ namespace tungsten::parser
         Macro,
 
         Function,
-        FunctionArg
+        FunctionArg,
+
+        VariableDeclaration,
+        Expression,
+        NumericLiteral
     };
 
     struct Attribute
@@ -43,6 +47,7 @@ namespace tungsten::parser
         union {
             std::string_view type;
             std::string_view macro_name;
+            std::string_view num_str;
         };
         union {
             std::string_view name;
@@ -57,8 +62,10 @@ namespace tungsten::parser
     {
         lexer::LexerInfo* lexer_info;
 
-        std::vector<AstNode> root_nodes;
-        std::vector<AstNode> child_nodes;
+        // We use a deque here in order to keep references to AstNode's valid as more nodes
+        // are appended to the list
+        std::deque<AstNode> root_nodes;
+        std::deque<AstNode> child_nodes;
     };
 
     Ast* generate_ast(std::string_view code);
