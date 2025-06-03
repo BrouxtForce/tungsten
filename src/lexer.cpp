@@ -134,8 +134,8 @@ namespace tungsten::lexer
 
     bool is_operator(char c)
     {
-        return c == '+' || c == '-' || c == '*' || c == '/' || c == '<' ||
-               c == '>' || c == '=' || c == '&' || c == '!' || c == '|';
+        return c == '+' || c == '-' || c == '*' || c == '/' || c == '<' || c == '>' ||
+               c == '=' || c == '&' || c == '!' || c == '|' || c == '^' || c == '~';
     }
 
     bool is_whitespace(char c)

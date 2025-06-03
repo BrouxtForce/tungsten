@@ -203,28 +203,71 @@ namespace tungsten::parser
         literal_node.num_str = consume_number(ast->lexer_info);
     }
 
+    // Does not include assignment operations
+    void consume_binary_operation(Ast* ast)
+    {
+        lexer::Token token = lexer::get_next_token(ast->lexer_info);
+        if (token.type != lexer::TokenType::Operator)
+        {
+            error::report("Expected operator", token.byte_offset, token.byte_length);
+            return;
+        }
+
+        constexpr std::array<std::string_view, 14> legal_binary_operations {
+            "+", "-", "*", "/",
+            "<", "<=", "==", ">=", ">",
+            "&&", "||", "&", "|", "^"
+        };
+
+        for (std::string_view operation : legal_binary_operations)
+        {
+            if (token.str == operation)
+            {
+                AstNode& operation_node = ast->child_nodes.emplace_back();
+                operation_node.node_type = AstNodeType::Operation;
+                operation_node.operation = token.str;
+                return;
+            }
+        }
+
+        error::report("Unexpected operator", token.byte_offset, token.byte_length);
+    }
+
     void consume_expression(Ast* ast)
     {
         AstNode& expression_node = ast->child_nodes.emplace_back();
         expression_node.node_type = AstNodeType::Expression;
         expression_node.child_offset = ast->child_nodes.size();
 
+        bool should_consume_binary_operation = false;
         while (true)
         {
             lexer::Token token = lexer::peek_next_token(ast->lexer_info);
             switch (token.type)
             {
                 case lexer::TokenType::Number:
+                    error::check(!should_consume_binary_operation, "Expected operator", token.byte_offset, token.byte_length);
                     consume_numeric_literal(ast);
+                    should_consume_binary_operation = true;
                     continue;
-                case lexer::TokenType::Punctuation:
-                    consume_punctuation(ast->lexer_info, ';');
-                    break;
+                case lexer::TokenType::Operator:
+                    error::check(should_consume_binary_operation, "Unexpected operator", token.byte_offset, token.byte_length);
+                    consume_binary_operation(ast);
+                    should_consume_binary_operation = false;
+                    continue;
+                case lexer::TokenType::Punctuation: {
+                    if (token.punc == ';' || token.punc == ')')
+                    {
+                        break;
+                    }
+                    [[fallthrough]];
+                }
                 default:
                     error::report("Unexpected token", token.byte_offset, token.byte_length);
                     lexer::get_next_token(ast->lexer_info);
                     continue;
             }
+            error::check(should_consume_binary_operation, "Expression cannot end on operator", token.byte_offset, token.byte_length);
             break;
         }
 
@@ -242,6 +285,7 @@ namespace tungsten::parser
 
         consume_operator(ast->lexer_info, "=");
         consume_expression(ast);
+        consume_punctuation(ast->lexer_info, ';');
 
         decl_node.num_children = ast->child_nodes.size() - decl_node.child_offset;
     }
@@ -419,6 +463,9 @@ namespace tungsten::parser
                 break;
             case AstNodeType::NumericLiteral:
                 std::cout << "numeric_literal " << node->num_str << '\n';
+                break;
+            case AstNodeType::Operation:
+                std::cout << "operation " << node->operation << '\n';
                 break;
 
             default:

@@ -56,6 +56,15 @@ namespace tungsten::error
         std::cerr << std::flush;
     }
 
+    void check(bool condition, std::string_view message, uint32_t byte_offset, uint32_t byte_length)
+    {
+        if (condition)
+        {
+            return;
+        }
+        error::report(message, byte_offset, byte_length);
+    }
+
     bool had_error()
     {
         return s_num_errors > 0;

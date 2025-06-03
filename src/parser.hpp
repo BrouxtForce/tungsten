@@ -26,7 +26,8 @@ namespace tungsten::parser
 
         VariableDeclaration,
         Expression,
-        NumericLiteral
+        NumericLiteral,
+        Operation
     };
 
     struct Attribute
@@ -48,6 +49,7 @@ namespace tungsten::parser
             std::string_view type;
             std::string_view macro_name;
             std::string_view num_str;
+            std::string_view operation;
         };
         union {
             std::string_view name;
