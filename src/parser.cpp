@@ -204,7 +204,7 @@ namespace tungsten::parser
     }
 
     // Does not include assignment operations
-    void consume_binary_operation(Ast* ast)
+    void consume_operation(Ast* ast, bool should_consume_binary_operation)
     {
         lexer::Token token = lexer::get_next_token(ast->lexer_info);
         if (token.type != lexer::TokenType::Operator)
@@ -218,13 +218,29 @@ namespace tungsten::parser
             "<", "<=", "==", ">=", ">",
             "&&", "||", "&", "|", "^"
         };
+        if (should_consume_binary_operation)
+        {
+            for (std::string_view operation : legal_binary_operations)
+            {
+                if (token.str == operation)
+                {
+                    AstNode& operation_node = ast->child_nodes.emplace_back();
+                    operation_node.node_type = AstNodeType::BinaryOperation;
+                    operation_node.operation = token.str;
+                    return;
+                }
+            }
+        }
 
-        for (std::string_view operation : legal_binary_operations)
+        constexpr std::array<std::string_view, 15> legal_unary_operations {
+            "+", "-", "~", "++", "--", "!"
+        };
+        for (std::string_view operation : legal_unary_operations)
         {
             if (token.str == operation)
             {
                 AstNode& operation_node = ast->child_nodes.emplace_back();
-                operation_node.node_type = AstNodeType::Operation;
+                operation_node.node_type = AstNodeType::UnaryOperation;
                 operation_node.operation = token.str;
                 return;
             }
@@ -251,8 +267,7 @@ namespace tungsten::parser
                     should_consume_binary_operation = true;
                     continue;
                 case lexer::TokenType::Operator:
-                    error::check(should_consume_binary_operation, "Unexpected operator", token.byte_offset, token.byte_length);
-                    consume_binary_operation(ast);
+                    consume_operation(ast, should_consume_binary_operation);
                     should_consume_binary_operation = false;
                     continue;
                 case lexer::TokenType::Punctuation: {
@@ -464,8 +479,11 @@ namespace tungsten::parser
             case AstNodeType::NumericLiteral:
                 std::cout << "numeric_literal " << node->num_str << '\n';
                 break;
-            case AstNodeType::Operation:
-                std::cout << "operation " << node->operation << '\n';
+            case AstNodeType::UnaryOperation:
+                std::cout << "unary_operation " << node->operation << '\n';
+                break;
+            case AstNodeType::BinaryOperation:
+                std::cout << "binary_operation " << node->operation << '\n';
                 break;
 
             default:

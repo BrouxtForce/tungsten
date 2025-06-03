@@ -325,11 +325,12 @@ namespace tungsten::lexer
         out.byte_length = info->stream.byte - out.byte_offset;
         std::string_view view = info->stream.string_view().substr(out.byte_offset, out.byte_length);
 
-        constexpr std::array<std::string_view, 21> valid_operators {
-            "+", "-", "*", "/", "+=", "-=", "*=", "/=", "=",
+        constexpr std::array<std::string_view, 25> valid_operators {
+            "+", "-", "*", "/", "%", "+=", "-=", "*=", "/=", "%=", "=",
             "<", "<=", "==", ">=", ">",
             "&&", "||", "!",
             "&", "|", "~", "^",
+            "++", "--"
         };
 
         bool is_valid_operator = false;
