@@ -25,6 +25,7 @@ namespace tungsten::parser
         FunctionArg,
 
         VariableDeclaration,
+        VariableAssignment,
         Expression,
         NumericLiteral,
         UnaryOperation,

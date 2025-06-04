@@ -362,6 +362,37 @@ namespace tungsten::parser
         decl_node.num_children = ast->child_nodes.size() - decl_node.child_offset;
     }
 
+    void consume_variable_assignment(Ast* ast, std::string_view name)
+    {
+        AstNode& assignment_node = ast->child_nodes.emplace_back();
+        assignment_node.node_type = AstNodeType::VariableAssignment;
+        assignment_node.name = name;
+        assignment_node.child_offset = ast->child_nodes.size();
+
+        lexer::Token token = lexer::get_next_token(ast->lexer_info);
+        if (token.type != lexer::TokenType::Operator)
+        {
+            error::report("Expected operator", token.byte_offset, token.byte_length);
+            return;
+        }
+
+        std::array<std::string_view, 9> valid_assignment_operators {
+            "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "="
+        };
+        for (std::string_view op : valid_assignment_operators)
+        {
+            if (op == token.str)
+            {
+                assignment_node.type = token.str;
+                consume_expression(ast);
+                consume_punctuation(ast->lexer_info, ';');
+                assignment_node.num_children = ast->child_nodes.size() - assignment_node.child_offset;
+                return;
+            }
+        }
+        error::report("Invalid operator", token.byte_offset, token.byte_length);
+    }
+
     void consume_function(Ast* ast)
     {
         AstNode& function_node = ast->root_nodes.emplace_back();
@@ -417,7 +448,7 @@ namespace tungsten::parser
                         consume_variable_declaration(ast, word);
                     }
                     else {
-                        // TODO: consume_variable_assignment(ast, word);
+                        consume_variable_assignment(ast, word);
                     }
                     continue;
                 }
@@ -529,6 +560,9 @@ namespace tungsten::parser
 
             case AstNodeType::VariableDeclaration:
                 std::cout << "variable_declaration " << node->type << ' ' << node->name;
+                break;
+            case AstNodeType::VariableAssignment:
+                std::cout << "variable_assignment " << node->name << ' ' << node->type;
                 break;
             case AstNodeType::Expression:
                 std::cout << "expression";
