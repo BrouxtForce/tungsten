@@ -30,6 +30,26 @@ namespace tungsten::parser
         return lexer::Keyword::None;
     }
 
+    bool try_consume_keyword(lexer::LexerInfo* info, lexer::Keyword keyword)
+    {
+        lexer::Token token = lexer::peek_next_token(info);
+        if (token.type == lexer::TokenType::Keyword && token.keyword == keyword)
+        {
+            lexer::get_next_token(info);
+            return true;
+        }
+        return false;
+    }
+
+    void consume_keyword(lexer::LexerInfo* info, lexer::Keyword keyword)
+    {
+        if (!try_consume_keyword(info, keyword))
+        {
+            lexer::Token token = lexer::peek_next_token(info);
+            error::report("Expected keyword", token.byte_offset, token.byte_length);
+        }
+    }
+
     void consume_punctuation(lexer::LexerInfo* info, char punc)
     {
         lexer::Token token = lexer::peek_next_token(info);
@@ -410,6 +430,48 @@ namespace tungsten::parser
         error::report("Invalid operator", token.byte_offset, token.byte_length);
     }
 
+    void consume_function_body(Ast* ast);
+
+    void consume_if_statement(Ast* ast)
+    {
+        AstNode& if_node = ast->child_nodes.emplace_back();
+        if_node.node_type = AstNodeType::IfStatement;
+        if_node.child_offset = ast->child_nodes.size();
+
+        consume_keyword(ast->lexer_info, lexer::Keyword::If);
+        consume_punctuation(ast->lexer_info, '(');
+        consume_expression(ast);
+        consume_punctuation(ast->lexer_info, ')');
+
+        consume_function_body(ast);
+
+        if_node.num_children = ast->child_nodes.size() - if_node.child_offset;
+
+        while (try_consume_keyword(ast->lexer_info, lexer::Keyword::Else))
+        {
+            bool is_else_if = try_consume_keyword(ast->lexer_info, lexer::Keyword::If);
+
+            AstNode& else_node = ast->child_nodes.emplace_back();
+            else_node.node_type = is_else_if ? AstNodeType::ElseIfStatement : AstNodeType::ElseStatement;
+            else_node.child_offset = ast->child_nodes.size();
+
+            if (is_else_if)
+            {
+                consume_punctuation(ast->lexer_info, '(');
+                consume_expression(ast);
+                consume_punctuation(ast->lexer_info, ')');
+            }
+            consume_function_body(ast);
+
+            else_node.num_children = ast->child_nodes.size() - else_node.child_offset;
+
+            if (!is_else_if)
+            {
+                break;
+            }
+        }
+    }
+
     void consume_function_body(Ast* ast)
     {
         consume_punctuation(ast->lexer_info, '{');
@@ -429,6 +491,13 @@ namespace tungsten::parser
                     }
                     continue;
                 }
+                case lexer::TokenType::Keyword:
+                    if (token.keyword == lexer::Keyword::If)
+                    {
+                        consume_if_statement(ast);
+                        continue;
+                    }
+                    goto unexpected_token;
                 case lexer::TokenType::Punctuation:
                     if (token.punc == '{')
                     {
@@ -447,6 +516,7 @@ namespace tungsten::parser
                     }
                     [[fallthrough]];
                 default:
+                unexpected_token:
                     lexer::get_next_token(ast->lexer_info);
                     error::report("Unexpected token", token.byte_offset, token.byte_length);
                     continue;
@@ -620,6 +690,16 @@ namespace tungsten::parser
                 break;
             case AstNodeType::FunctionCall:
                 std::cout << "function_call " << node->name;
+                break;
+
+            case AstNodeType::IfStatement:
+                std::cout << "if_statment";
+                break;
+            case AstNodeType::ElseIfStatement:
+                std::cout << "else_if_statement";
+                break;
+            case AstNodeType::ElseStatement:
+                std::cout << "else_statement";
                 break;
 
             default:

@@ -33,7 +33,11 @@ namespace tungsten::parser
         UnaryOperation,
         BinaryOperation,
         Variable,
-        FunctionCall
+        FunctionCall,
+
+        IfStatement,
+        ElseIfStatement,
+        ElseStatement
     };
 
     struct Attribute
