@@ -287,6 +287,14 @@ namespace tungsten::parser
                     should_consume_binary_operation = false;
                     continue;
                 case lexer::TokenType::Punctuation: {
+                    if (token.punc == '(')
+                    {
+                        consume_punctuation(ast->lexer_info, '(');
+                        consume_expression(ast);
+                        consume_punctuation(ast->lexer_info, ')');
+                        should_consume_binary_operation = true;
+                        continue;
+                    }
                     if (token.punc == ';' || token.punc == ')' || token.punc == ',')
                     {
                         break;
@@ -319,15 +327,24 @@ namespace tungsten::parser
             function_call_node.name = name;
 
             consume_punctuation(ast->lexer_info, '(');
+            bool is_first_iteration = true;
             while (true)
             {
                 lexer::Token token = lexer::peek_next_token(ast->lexer_info);
                 if (token.type == lexer::TokenType::Punctuation)
                 {
-                    if (token.punc == ')') break;
-                    consume_punctuation(ast->lexer_info, ',');
+                    if (token.punc == ')')
+                    {
+                        break;
+                    }
+                    if (!is_first_iteration)
+                    {
+                        consume_punctuation(ast->lexer_info, ',');
+                    }
                 }
                 consume_expression(ast);
+
+                is_first_iteration = false;
             }
             consume_punctuation(ast->lexer_info, ')');
 
@@ -393,6 +410,52 @@ namespace tungsten::parser
         error::report("Invalid operator", token.byte_offset, token.byte_length);
     }
 
+    void consume_function_body(Ast* ast)
+    {
+        consume_punctuation(ast->lexer_info, '{');
+        while (true)
+        {
+            lexer::Token token = lexer::peek_next_token(ast->lexer_info);
+            switch (token.type)
+            {
+                case lexer::TokenType::Name: {
+                    std::string_view word = consume_name(ast->lexer_info);
+                    if (lexer::peek_next_token(ast->lexer_info).type == lexer::TokenType::Name)
+                    {
+                        consume_variable_declaration(ast, word);
+                    }
+                    else {
+                        consume_variable_assignment(ast, word);
+                    }
+                    continue;
+                }
+                case lexer::TokenType::Punctuation:
+                    if (token.punc == '{')
+                    {
+                        AstNode& scope_node = ast->child_nodes.emplace_back();
+                        scope_node.node_type = AstNodeType::Scope;
+                        scope_node.child_offset = ast->child_nodes.size();
+
+                        consume_function_body(ast);
+
+                        scope_node.num_children = ast->child_nodes.size() - scope_node.child_offset;
+                        continue;
+                    }
+                    if (token.punc == '}')
+                    {
+                        break;
+                    }
+                    [[fallthrough]];
+                default:
+                    lexer::get_next_token(ast->lexer_info);
+                    error::report("Unexpected token", token.byte_offset, token.byte_length);
+                    continue;
+            }
+            break;
+        }
+        consume_punctuation(ast->lexer_info, '}');
+    }
+
     void consume_function(Ast* ast)
     {
         AstNode& function_node = ast->root_nodes.emplace_back();
@@ -429,35 +492,7 @@ namespace tungsten::parser
         }
         consume_punctuation(ast->lexer_info, ')');
 
-        consume_punctuation(ast->lexer_info, '{');
-        while (true)
-        {
-            lexer::Token token = lexer::peek_next_token(ast->lexer_info);
-            switch (token.type)
-            {
-                case lexer::TokenType::Punctuation:
-                    if (token.punc == '}')
-                    {
-                        break;
-                    }
-                    continue;
-                case lexer::TokenType::Name: {
-                    std::string_view word = consume_name(ast->lexer_info);
-                    if (lexer::peek_next_token(ast->lexer_info).type == lexer::TokenType::Name)
-                    {
-                        consume_variable_declaration(ast, word);
-                    }
-                    else {
-                        consume_variable_assignment(ast, word);
-                    }
-                    continue;
-                }
-                default:
-                    error::report("Unexpected token", token.byte_offset, token.byte_length);
-            }
-            break;
-        }
-        consume_punctuation(ast->lexer_info, '}');
+        consume_function_body(ast);
 
         function_node.num_children = ast->child_nodes.size() - function_node.child_offset;
     }
@@ -556,6 +591,10 @@ namespace tungsten::parser
                 break;
             case AstNodeType::FunctionArg:
                 std::cout << "function_arg " << node->type << ' ' << node->name;
+                break;
+
+            case AstNodeType::Scope:
+                std::cout << "scope";
                 break;
 
             case AstNodeType::VariableDeclaration:

@@ -24,6 +24,8 @@ namespace tungsten::parser
         Function,
         FunctionArg,
 
+        Scope,
+
         VariableDeclaration,
         VariableAssignment,
         Expression,
