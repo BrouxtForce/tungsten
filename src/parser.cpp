@@ -394,7 +394,6 @@ namespace tungsten::parser
             return;
         }
         consume_expression(ast);
-        consume_punctuation(ast->lexer_info, ';');
 
         decl_node.num_children = ast->child_nodes.size() - decl_node.child_offset;
     }
@@ -422,7 +421,6 @@ namespace tungsten::parser
             {
                 assignment_node.type = token.str;
                 consume_expression(ast);
-                consume_punctuation(ast->lexer_info, ';');
                 assignment_node.num_children = ast->child_nodes.size() - assignment_node.child_offset;
                 return;
             }
@@ -472,6 +470,26 @@ namespace tungsten::parser
         }
     }
 
+    void consume_for_loop(Ast* ast)
+    {
+        AstNode& for_node = ast->child_nodes.emplace_back();
+        for_node.node_type = AstNodeType::ForLoop;
+        for_node.child_offset = ast->child_nodes.size();
+
+        consume_keyword(ast->lexer_info, lexer::Keyword::For);
+        consume_punctuation(ast->lexer_info, '(');
+        consume_variable_declaration(ast, consume_name(ast->lexer_info));
+        consume_punctuation(ast->lexer_info, ';');
+        consume_expression(ast);
+        consume_punctuation(ast->lexer_info, ';');
+        consume_variable_assignment(ast, consume_name(ast->lexer_info));
+        consume_punctuation(ast->lexer_info, ')');
+
+        consume_function_body(ast);
+
+        for_node.num_children = ast->child_nodes.size() - for_node.child_offset;
+    }
+
     void consume_while_loop(Ast* ast)
     {
         AstNode& while_node = ast->child_nodes.emplace_back();
@@ -501,9 +519,11 @@ namespace tungsten::parser
                     if (lexer::peek_next_token(ast->lexer_info).type == lexer::TokenType::Name)
                     {
                         consume_variable_declaration(ast, word);
+                        consume_punctuation(ast->lexer_info, ';');
                     }
                     else {
                         consume_variable_assignment(ast, word);
+                        consume_punctuation(ast->lexer_info, ';');
                     }
                     continue;
                 }
@@ -511,6 +531,11 @@ namespace tungsten::parser
                     if (token.keyword == lexer::Keyword::If)
                     {
                         consume_if_statement(ast);
+                        continue;
+                    }
+                    if (token.keyword == lexer::Keyword::For)
+                    {
+                        consume_for_loop(ast);
                         continue;
                     }
                     if (token.keyword == lexer::Keyword::While)
@@ -734,6 +759,9 @@ namespace tungsten::parser
                 std::cout << "else_statement";
                 break;
 
+            case AstNodeType::ForLoop:
+                std::cout << "for_loop";
+                break;
             case AstNodeType::WhileLoop:
                 std::cout << "while_loop";
                 break;

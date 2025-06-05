@@ -39,6 +39,7 @@ namespace tungsten::parser
         ElseIfStatement,
         ElseStatement,
 
+        ForLoop,
         WhileLoop,
 
         ReturnStatement
