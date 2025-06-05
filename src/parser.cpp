@@ -425,6 +425,14 @@ namespace tungsten::parser
                 return;
             }
         }
+
+        if (token.str == "++" || token.str == "--")
+        {
+            assignment_node.type = token.str;
+            assignment_node.num_children = ast->child_nodes.size() - assignment_node.child_offset;
+            return;
+        }
+
         error::report("Invalid operator", token.byte_offset, token.byte_length);
     }
 
