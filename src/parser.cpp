@@ -497,6 +497,17 @@ namespace tungsten::parser
                         consume_if_statement(ast);
                         continue;
                     }
+                    if (token.keyword == lexer::Keyword::Return)
+                    {
+                        consume_keyword(ast->lexer_info, lexer::Keyword::Return);
+                        AstNode& return_node = ast->child_nodes.emplace_back();
+                        return_node.node_type = AstNodeType::ReturnStatement;
+                        return_node.child_offset = ast->child_nodes.size();
+                        consume_expression(ast);
+                        consume_punctuation(ast->lexer_info, ';');
+                        return_node.num_children = ast->child_nodes.size() - return_node.child_offset;
+                        continue;
+                    }
                     goto unexpected_token;
                 case lexer::TokenType::Punctuation:
                     if (token.punc == '{')
@@ -700,6 +711,10 @@ namespace tungsten::parser
                 break;
             case AstNodeType::ElseStatement:
                 std::cout << "else_statement";
+                break;
+
+            case AstNodeType::ReturnStatement:
+                std::cout << "return_statement";
                 break;
 
             default:

@@ -37,7 +37,9 @@ namespace tungsten::parser
 
         IfStatement,
         ElseIfStatement,
-        ElseStatement
+        ElseStatement,
+
+        ReturnStatement
     };
 
     struct Attribute
