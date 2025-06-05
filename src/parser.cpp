@@ -472,6 +472,22 @@ namespace tungsten::parser
         }
     }
 
+    void consume_while_loop(Ast* ast)
+    {
+        AstNode& while_node = ast->child_nodes.emplace_back();
+        while_node.node_type = AstNodeType::WhileLoop;
+        while_node.child_offset = ast->child_nodes.size();
+
+        consume_keyword(ast->lexer_info, lexer::Keyword::While);
+        consume_punctuation(ast->lexer_info, '(');
+        consume_expression(ast);
+        consume_punctuation(ast->lexer_info, ')');
+
+        consume_function_body(ast);
+
+        while_node.num_children = ast->child_nodes.size() - while_node.child_offset;
+    }
+
     void consume_function_body(Ast* ast)
     {
         consume_punctuation(ast->lexer_info, '{');
@@ -495,6 +511,11 @@ namespace tungsten::parser
                     if (token.keyword == lexer::Keyword::If)
                     {
                         consume_if_statement(ast);
+                        continue;
+                    }
+                    if (token.keyword == lexer::Keyword::While)
+                    {
+                        consume_while_loop(ast);
                         continue;
                     }
                     if (token.keyword == lexer::Keyword::Return)
@@ -711,6 +732,10 @@ namespace tungsten::parser
                 break;
             case AstNodeType::ElseStatement:
                 std::cout << "else_statement";
+                break;
+
+            case AstNodeType::WhileLoop:
+                std::cout << "while_loop";
                 break;
 
             case AstNodeType::ReturnStatement:
