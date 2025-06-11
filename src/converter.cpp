@@ -1,4 +1,5 @@
 #include "converter.hpp"
+#include "parser.hpp"
 
 #include <cstring>
 #include <sstream>
@@ -10,6 +11,8 @@
 namespace tungsten::converter
 {
     using namespace parser;
+
+    void output_node(const Ast* ast, const AstNode* node, std::ostream& stream, int indent);
 
     std::string_view get_indent(int indent)
     {
@@ -26,12 +29,15 @@ namespace tungsten::converter
         return std::string_view(indent_string).substr(0, target_indent);
     }
 
-    void iterate_node_children(const Ast* ast, const AstNode* node, std::function<void(const AstNode*)> callback)
+    void iterate_node_children(const Ast* ast, const AstNode* node, std::function<bool(const AstNode*)> callback)
     {
         for (uint16_t i = node->child_offset; i < node->child_offset + node->num_children; i++)
         {
             const AstNode* child_node = &ast->child_nodes[i];
-            callback(child_node);
+            if (!callback(child_node))
+            {
+                return;
+            }
             i += child_node->num_children;
         }
     }
@@ -65,7 +71,7 @@ namespace tungsten::converter
             stream << '\n';
         }
         stream << "struct " << node->name << " {\n";
-        iterate_node_children(ast, node, [&](const AstNode* child_node) {
+        iterate_node_children(ast, node, [&indent, &stream](const AstNode* child_node) {
             assert(child_node->node_type == AstNodeType::StructMember);
 
             stream << get_indent(indent + 1);
@@ -74,8 +80,55 @@ namespace tungsten::converter
                 stream << ' ';
             }
             stream << child_node->type << ' ' << child_node->name << ";\n";
+            return true;
         });
         stream << "};\n\n";
+    }
+
+    void output_function(const Ast* ast, const AstNode* node, std::ostream& stream, int indent)
+    {
+        assert(node->node_type == AstNodeType::Function);
+
+        stream << get_indent(indent);
+        if (output_attributes(node->attributes, stream))
+        {
+            stream << '\n';
+        }
+        stream << node->type << ' ' << node->name << '(';
+
+        bool is_first_child = true;
+        iterate_node_children(ast, node, [&stream, &is_first_child](const AstNode* child_node) {
+            if (child_node->node_type == AstNodeType::FunctionArg)
+            {
+                if (!is_first_child)
+                {
+                    stream << ", ";
+                }
+                if (output_attributes(child_node->attributes, stream))
+                {
+                    stream << ' ';
+                }
+                stream << child_node->type << ' ' << child_node->name;
+                is_first_child = false;
+                return true;
+            }
+            return false;
+        });
+
+        stream << ") {\n";
+
+        iterate_node_children(ast, node, [&ast, &indent, &stream](const AstNode* child_node) {
+            if (child_node->node_type == AstNodeType::FunctionArg)
+            {
+                return true;
+            }
+
+            output_node(ast, child_node, stream, indent + 1);
+
+            return true;
+        });
+
+        stream << "\n}\n\n";
     }
 
     void output_node(const Ast* ast, const AstNode* node, std::ostream& stream, int indent)
@@ -86,8 +139,9 @@ namespace tungsten::converter
                 output_struct(ast, node, stream, indent);
                 break;
 
-            // case AstNodeType::Function:
-            //     break;
+            case AstNodeType::Function:
+                output_function(ast, node, stream, indent);
+                break;
 
             // case AstNodeType::Scope:
             //     break;
