@@ -7,6 +7,7 @@
 #include "utility.hpp"
 #include "error.hpp"
 #include "parser.hpp"
+#include "converter.hpp"
 
 struct Arguments {
     int index = 1;
@@ -17,7 +18,7 @@ struct Arguments {
     bool is_flag()
     {
         assert(index < argc);
-        return argv[index][0] == '-';
+        return argv[index][0] == '-' && std::strlen(argv[index]) == 2;
     }
 
     const char* read_next()
@@ -48,6 +49,8 @@ int main(int argc, char** argv)
     std::string input_filepath;
     std::string output_filepath;
 
+    bool should_print_ast = false;
+
     while (!args.done())
     {
         if (args.is_flag())
@@ -70,9 +73,21 @@ int main(int argc, char** argv)
             continue;
         }
 
+        std::string_view next_arg = args.read_next();
+        if (next_arg.starts_with("--"))
+        {
+            if (next_arg == "--print-ast")
+            {
+                should_print_ast = true;
+                continue;
+            }
+            std::cerr << "Invalid argument '" << next_arg << "'\n";
+            return EXIT_FAILURE;
+        }
+
         if (input_filepath.empty())
         {
-            input_filepath = args.read_next();
+            input_filepath = next_arg;
             continue;
         }
         std::cerr << "Extraneous input argument\n";
@@ -84,14 +99,25 @@ int main(int argc, char** argv)
         std::cerr << "No input file\n";
         return EXIT_FAILURE;
     }
+
+    if (should_print_ast) {
+        using namespace tungsten;
+
+        std::string code = utility::read_file(input_filepath);
+        error::init_error_info(input_filepath, code);
+
+        parser::Ast* ast = parser::generate_ast(code);
+        parser::print_ast(ast);
+
+        parser::free_ast(ast);
+        return EXIT_SUCCESS;
+    }
+
     if (output_filepath.empty())
     {
         std::cerr << "No output file\n";
         return EXIT_FAILURE;
     }
-
-    std::cout << "input filepath: '" << input_filepath << "'\n";
-    std::cout << "output filepath: '" << output_filepath << "'\n";
 
     {
         using namespace tungsten;
@@ -100,7 +126,7 @@ int main(int argc, char** argv)
         error::init_error_info(input_filepath, code);
 
         parser::Ast* ast = parser::generate_ast(code);
-        parser::print_ast(ast);
+        converter::to_msl(ast, std::cout);
 
         parser::free_ast(ast);
     }
