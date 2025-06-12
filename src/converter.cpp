@@ -29,17 +29,38 @@ namespace tungsten::converter
         return std::string_view(indent_string).substr(0, target_indent);
     }
 
-    void iterate_node_children(const Ast* ast, const AstNode* node, std::function<bool(const AstNode*)> callback)
+    void iterate_node_children(const Ast* ast, const AstNode* node, std::function<bool(const AstNode*)> callback, int num_to_skip = 0)
     {
         for (uint16_t i = node->child_offset; i < node->child_offset + node->num_children; i++)
         {
             const AstNode* child_node = &ast->child_nodes[i];
-            if (!callback(child_node))
+            if (num_to_skip > 0)
+            {
+                --num_to_skip;
+            }
+            else if (!callback(child_node))
             {
                 return;
             }
             i += child_node->num_children;
         }
+    }
+
+    const AstNode* get_nth_child(const Ast* ast, const AstNode* node, int n)
+    {
+        int num_iterations = 0;
+        for (uint16_t i = node->child_offset; i < node->child_offset + node->num_children; i++)
+        {
+            const AstNode* child_node = &ast->child_nodes[i];
+            i += child_node->num_children;
+
+            num_iterations++;
+            if (num_iterations == n)
+            {
+                return child_node;
+            }
+        }
+        return nullptr;
     }
 
     bool output_attributes(const std::vector<Attribute>& attributes, std::ostream& stream)
@@ -203,7 +224,7 @@ namespace tungsten::converter
         }
     }
 
-    void output_variable_declaration(const Ast* ast, const AstNode* node, std::ostream& stream, int indent)
+    void output_variable_declaration(const Ast* ast, const AstNode* node, std::ostream& stream, int indent, bool output_semicolon = true)
     {
         assert(node->node_type == AstNodeType::VariableDeclaration);
 
@@ -224,10 +245,10 @@ namespace tungsten::converter
             stream << "{}";
         }
 
-        stream << ";\n";
+        if (output_semicolon) stream << ";\n";
     }
 
-    void output_variable_assignment(const Ast* ast, const AstNode* node, std::ostream& stream, int indent)
+    void output_variable_assignment(const Ast* ast, const AstNode* node, std::ostream& stream, int indent, bool output_semicolon = true)
     {
         assert(node->node_type == AstNodeType::VariableAssignment);
 
@@ -251,7 +272,7 @@ namespace tungsten::converter
             return true;
         });
 
-        stream << ";\n";
+        if (output_semicolon) stream << ";\n";
     }
 
     void output_scope(const Ast* ast, const AstNode* node, std::ostream& stream, int indent)
@@ -261,6 +282,59 @@ namespace tungsten::converter
             output_node(ast, child_node, stream, indent + 1);
             return true;
         });
+        stream << get_indent(indent) << "}\n";
+    }
+
+    void output_if_else_for_while(const Ast* ast, const AstNode* node, std::ostream& stream, int indent)
+    {
+        assert(node->node_type == AstNodeType::IfStatement || node->node_type == AstNodeType::ElseIfStatement ||
+               node->node_type == AstNodeType::ElseStatement || node->node_type == AstNodeType::ForLoop ||
+               node->node_type == AstNodeType::WhileLoop);
+
+        stream << get_indent(indent);
+        switch (node->node_type)
+        {
+            case AstNodeType::IfStatement:     stream << "if"; break;
+            case AstNodeType::ElseIfStatement: stream << "else if"; break;
+            case AstNodeType::ElseStatement:   stream << "else"; break;
+            case AstNodeType::ForLoop:         stream << "for"; break;
+            case AstNodeType::WhileLoop:       stream << "while"; break;
+            default: assert(false);
+        }
+
+        if (node->node_type == AstNodeType::ForLoop)
+        {
+            stream << " (";
+
+            const AstNode* initialization_node = get_nth_child(ast, node, 1);
+            const AstNode* expression_node     = get_nth_child(ast, node, 2);
+            const AstNode* update_node         = get_nth_child(ast, node, 3);
+
+            assert(initialization_node != nullptr && expression_node != nullptr && update_node != nullptr);
+
+            output_variable_declaration(ast, initialization_node, stream, 0, false);
+            stream << "; ";
+            output_expression(ast, expression_node, stream, true);
+            stream << "; ";
+            output_variable_assignment(ast, update_node, stream, 0, false);
+
+            stream << ')';
+        }
+        else if (node->node_type != AstNodeType::ElseStatement)
+        {
+            stream << " (";
+            const AstNode* expression_node = get_nth_child(ast, node, 1);
+            assert(expression_node != nullptr);
+            output_expression(ast, expression_node, stream, true);
+            stream << ')';
+        }
+
+        stream << " {\n";
+        iterate_node_children(ast, node, [&ast, &stream, &indent](const AstNode* child_node) {
+            output_node(ast, child_node, stream, indent + 1);
+            return true;
+        }, node->node_type == AstNodeType::ForLoop ? 3 : 1);
+
         stream << get_indent(indent) << "}\n";
     }
 
@@ -287,17 +361,13 @@ namespace tungsten::converter
                 output_variable_assignment(ast, node, stream, indent);
                 break;
 
-            // case AstNodeType::IfStatement:
-            //     break;
-            // case AstNodeType::ElseIfStatement:
-            //     break;
-            // case AstNodeType::ElseStatement:
-            //     break;
-
-            // case AstNodeType::ForLoop:
-            //     break;
-            // case AstNodeType::WhileLoop:
-            //     break;
+            case AstNodeType::IfStatement:
+            case AstNodeType::ElseIfStatement:
+            case AstNodeType::ElseStatement:
+            case AstNodeType::ForLoop:
+            case AstNodeType::WhileLoop:
+                output_if_else_for_while(ast, node, stream, indent);
+                break;
 
             // case AstNodeType::ReturnStatement:
             //     break;
