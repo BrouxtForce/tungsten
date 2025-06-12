@@ -338,6 +338,19 @@ namespace tungsten::converter
         stream << get_indent(indent) << "}\n";
     }
 
+    void output_return_statement(const Ast* ast, const AstNode* node, std::ostream& stream, int indent)
+    {
+        assert(node->node_type == AstNodeType::ReturnStatement);
+
+        stream << get_indent(indent) << "return ";
+
+        const AstNode* expression_node = get_nth_child(ast, node, 1);
+        assert(expression_node != nullptr);
+        output_expression(ast, expression_node, stream, true);
+
+        stream << ";\n";
+    }
+
     void output_node(const Ast* ast, const AstNode* node, std::ostream& stream, int indent)
     {
         switch (node->node_type)
@@ -369,8 +382,9 @@ namespace tungsten::converter
                 output_if_else_for_while(ast, node, stream, indent);
                 break;
 
-            // case AstNodeType::ReturnStatement:
-            //     break;
+            case AstNodeType::ReturnStatement:
+                output_return_statement(ast, node, stream, indent);
+                break;
 
             default:
                 std::cerr << "unsupported node type " << (int)node->node_type << '\n';
