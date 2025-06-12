@@ -106,6 +106,35 @@ namespace tungsten::converter
         stream << "};\n\n";
     }
 
+    void output_uniform_group(const Ast* ast, const AstNode* node, std::ostream& stream, int indent)
+    {
+        // TODO: Use attributes to declare the address space
+        constexpr std::string_view address_space = "device";
+
+        assert(node->node_type == AstNodeType::UniformGroup);
+
+        stream << get_indent(indent);
+        if (output_attributes(node->attributes, stream))
+        {
+            stream << '\n';
+        }
+        stream << address_space << " struct {\n";
+        iterate_node_children(ast, node, [&indent, &stream](const AstNode* child_node) {
+            assert(child_node->node_type == AstNodeType::UniformGroupMember);
+
+            stream << get_indent(indent + 1);
+            if (output_attributes(child_node->attributes, stream))
+            {
+                stream << ' ';
+            }
+            stream << child_node->type << ' ' << child_node->name << ";\n";
+            return true;
+        });
+        // TODO: Automatic buffer binding + texture binding
+        stream << "}* " << node->name << " [[buffer(0)]];\n\n";
+    }
+
+
     void output_function(const Ast* ast, const AstNode* node, std::ostream& stream, int indent)
     {
         assert(node->node_type == AstNodeType::Function);
@@ -357,6 +386,9 @@ namespace tungsten::converter
         {
             case AstNodeType::Struct:
                 output_struct(ast, node, stream, indent);
+                break;
+            case AstNodeType::UniformGroup:
+                output_uniform_group(ast, node, stream, indent);
                 break;
 
             case AstNodeType::Function:
