@@ -128,7 +128,122 @@ namespace tungsten::converter
             return true;
         });
 
-        stream << "\n}\n\n";
+        stream << "}\n\n";
+    }
+
+    void output_expression(const Ast* ast, const AstNode* node, std::ostream& stream, bool is_root_expression);
+
+    void output_function_call(const Ast* ast, const AstNode* node, std::ostream& stream)
+    {
+        assert(node->node_type == AstNodeType::FunctionCall);
+
+        stream << node->name << '(';
+        bool is_first_argument = true;
+        iterate_node_children(ast, node, [&ast, &stream, &is_first_argument](const AstNode* child_node) {
+            if (!is_first_argument)
+            {
+                stream << ", ";
+            }
+            is_first_argument = false;
+            output_expression(ast, child_node, stream, true);
+            return true;
+        });
+        stream << ')';
+    }
+
+    void output_expression(const Ast* ast, const AstNode* node, std::ostream& stream, bool is_root_expression)
+    {
+        if (!is_root_expression)
+        {
+            stream << '(';
+        }
+
+        bool needs_spacing = false;
+        iterate_node_children(ast, node, [&ast, &stream, &needs_spacing](const AstNode* child_node) {
+            if (needs_spacing)
+            {
+                stream << ' ';
+            }
+            switch (child_node->node_type)
+            {
+                case AstNodeType::NumericLiteral:
+                    stream << child_node->num_str;
+                    needs_spacing = true;
+                    break;
+                case AstNodeType::Variable:
+                    stream << child_node->name;
+                    needs_spacing = true;
+                    break;
+                case AstNodeType::FunctionCall:
+                    output_function_call(ast, child_node, stream);
+                    needs_spacing = true;
+                    break;
+                case AstNodeType::BinaryOperation:
+                    stream << child_node->operation;
+                    needs_spacing = true;
+                    break;
+                case AstNodeType::UnaryOperation:
+                    stream << child_node->operation;
+                    needs_spacing = false;
+                    break;
+                case AstNodeType::Expression:
+                    output_expression(ast, child_node, stream, false);
+                    needs_spacing = true;
+                    break;
+                default:
+                    std::cerr << "Invalid node type " << (int)child_node->node_type << " in output_expression()\n";
+            }
+
+            return true;
+        });
+
+        if (!is_root_expression)
+        {
+            stream << ")";
+        }
+    }
+
+    void output_variable_declaration(const Ast* ast, const AstNode* node, std::ostream& stream, int indent)
+    {
+        assert(node->node_type == AstNodeType::VariableDeclaration);
+
+        stream << get_indent(indent);
+        stream << node->type << ' ' << node->name << " = ";
+
+        assert(node->num_children > 0);
+        const AstNode* expression_node = &ast->child_nodes[node->child_offset];
+
+        assert(expression_node->node_type == AstNodeType::Expression);
+        output_expression(ast, expression_node, stream, true);
+
+        stream << ";\n";
+    }
+
+    void output_variable_assignment(const Ast* ast, const AstNode* node, std::ostream& stream, int indent)
+    {
+        assert(node->node_type == AstNodeType::VariableAssignment);
+
+        stream << get_indent(indent);
+
+        if (node->operation == "++" || node->operation == "--")
+        {
+            stream << node->name << node->operation;
+        }
+        else
+        {
+            stream << node->name << ' ' << node->operation << ' ';
+        }
+
+        iterate_node_children(ast, node, [&ast, &stream](const AstNode* child_node) {
+            if (child_node->node_type == AstNodeType::Expression)
+            {
+                output_expression(ast, child_node, stream, true);
+                return false;
+            }
+            return true;
+        });
+
+        stream << ";\n";
     }
 
     void output_node(const Ast* ast, const AstNode* node, std::ostream& stream, int indent)
@@ -146,10 +261,12 @@ namespace tungsten::converter
             // case AstNodeType::Scope:
             //     break;
 
-            // case AstNodeType::VariableDeclaration:
-            //     break;
-            // case AstNodeType::VariableAssignment:
-            //     break;
+            case AstNodeType::VariableDeclaration:
+                output_variable_declaration(ast, node, stream, indent);
+                break;
+            case AstNodeType::VariableAssignment:
+                output_variable_assignment(ast, node, stream, indent);
+                break;
 
             // case AstNodeType::IfStatement:
             //     break;
