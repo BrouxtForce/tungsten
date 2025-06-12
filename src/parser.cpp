@@ -390,7 +390,6 @@ namespace tungsten::parser
         if (!try_consume_operator(ast->lexer_info, "="))
         {
             // Uninitialized variable
-            consume_punctuation(ast->lexer_info, ';');
             return;
         }
         consume_expression(ast);

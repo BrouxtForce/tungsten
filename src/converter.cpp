@@ -208,13 +208,21 @@ namespace tungsten::converter
         assert(node->node_type == AstNodeType::VariableDeclaration);
 
         stream << get_indent(indent);
-        stream << node->type << ' ' << node->name << " = ";
+        stream << node->type << ' ' << node->name;
 
-        assert(node->num_children > 0);
-        const AstNode* expression_node = &ast->child_nodes[node->child_offset];
+        if (node->num_children > 0)
+        {
+            stream << " = ";
 
-        assert(expression_node->node_type == AstNodeType::Expression);
-        output_expression(ast, expression_node, stream, true);
+            const AstNode* expression_node = &ast->child_nodes[node->child_offset];
+            assert(expression_node->node_type == AstNodeType::Expression);
+            output_expression(ast, expression_node, stream, true);
+        }
+        else
+        {
+            // Uninitialized variable
+            stream << "{}";
+        }
 
         stream << ";\n";
     }
