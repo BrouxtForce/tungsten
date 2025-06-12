@@ -246,6 +246,16 @@ namespace tungsten::converter
         stream << ";\n";
     }
 
+    void output_scope(const Ast* ast, const AstNode* node, std::ostream& stream, int indent)
+    {
+        stream << get_indent(indent) << "{\n";
+        iterate_node_children(ast, node, [&ast, &stream, &indent](const AstNode* child_node) {
+            output_node(ast, child_node, stream, indent + 1);
+            return true;
+        });
+        stream << get_indent(indent) << "}\n";
+    }
+
     void output_node(const Ast* ast, const AstNode* node, std::ostream& stream, int indent)
     {
         switch (node->node_type)
@@ -258,8 +268,9 @@ namespace tungsten::converter
                 output_function(ast, node, stream, indent);
                 break;
 
-            // case AstNodeType::Scope:
-            //     break;
+            case AstNodeType::Scope:
+                output_scope(ast, node, stream, indent);
+                break;
 
             case AstNodeType::VariableDeclaration:
                 output_variable_declaration(ast, node, stream, indent);
