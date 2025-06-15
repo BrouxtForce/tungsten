@@ -31,7 +31,7 @@ namespace tungsten::converter
 
     void iterate_node_children(const Ast* ast, const AstNode* node, std::function<bool(const AstNode*)> callback, int num_to_skip = 0)
     {
-        for (uint16_t i = node->child_offset; i < node->child_offset + node->num_children; i++)
+        for (uint32_t i = node->index + 1; i <= node->index + node->num_children; i++)
         {
             const AstNode* child_node = &ast->nodes[i];
             if (num_to_skip > 0)
@@ -49,7 +49,7 @@ namespace tungsten::converter
     const AstNode* get_nth_child(const Ast* ast, const AstNode* node, int n)
     {
         int num_iterations = 0;
-        for (uint16_t i = node->child_offset; i < node->child_offset + node->num_children; i++)
+        for (uint32_t i = node->index + 1; i <= node->index + node->num_children; i++)
         {
             const AstNode* child_node = &ast->nodes[i];
             i += child_node->num_children;
@@ -264,7 +264,7 @@ namespace tungsten::converter
         {
             stream << " = ";
 
-            const AstNode* expression_node = &ast->nodes[node->child_offset];
+            const AstNode* expression_node = get_nth_child(ast, node, 1);
             assert(expression_node->node_type == AstNodeType::Expression);
             output_expression(ast, expression_node, stream, true);
         }
@@ -425,7 +425,7 @@ namespace tungsten::converter
 
     void to_msl(const Ast* ast, std::ostream& stream)
     {
-        for (uint16_t i = 0; i < ast->nodes.size(); i++)
+        for (uint32_t i = 0; i < ast->nodes.size(); i++)
         {
             const AstNode* child_node = &ast->nodes[i];
             output_node(ast, child_node, stream, 0);

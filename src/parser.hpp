@@ -53,11 +53,11 @@ namespace tungsten::parser
 
     struct AstNode
     {
-        inline AstNode() {
+        constexpr AstNode() {
             std::memset(this, 0, sizeof(*this));
         }
 
-        AstNodeType node_type = AstNodeType::None;
+        AstNodeType node_type;
         std::vector<Attribute> attributes;
 
         union {
@@ -71,9 +71,8 @@ namespace tungsten::parser
             std::string_view macro_arg;
         };
 
-        // TODO: These should probably be uint32_t's
-        uint16_t child_offset = 0;
-        uint16_t num_children = 0;
+        uint32_t index;
+        uint32_t num_children;
     };
 
     struct Ast
