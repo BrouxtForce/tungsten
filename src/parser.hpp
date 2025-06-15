@@ -71,6 +71,7 @@ namespace tungsten::parser
             std::string_view macro_arg;
         };
 
+        // TODO: These should probably be uint32_t's
         uint16_t child_offset = 0;
         uint16_t num_children = 0;
     };
@@ -81,8 +82,7 @@ namespace tungsten::parser
 
         // We use a deque here in order to keep references to AstNode's valid as more nodes
         // are appended to the list
-        std::deque<AstNode> root_nodes;
-        std::deque<AstNode> child_nodes;
+        std::deque<AstNode> nodes;
     };
 
     Ast* generate_ast(std::string_view code);

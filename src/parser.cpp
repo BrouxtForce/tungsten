@@ -163,8 +163,8 @@ namespace tungsten::parser
 
     void consume_struct(Ast* ast)
     {
-        AstNode& struct_node = ast->root_nodes.emplace_back();
-        struct_node.child_offset = ast->child_nodes.size();
+        AstNode& struct_node = ast->nodes.emplace_back();
+        struct_node.child_offset = ast->nodes.size();
 
         lexer::Keyword keyword = consume_keyword<2>(ast->lexer_info, { lexer::Keyword::Struct, lexer::Keyword::UniformGroup });
         struct_node.node_type = keyword == lexer::Keyword::Struct ? AstNodeType::Struct : AstNodeType::UniformGroup;
@@ -185,7 +185,7 @@ namespace tungsten::parser
                 break;
             }
 
-            AstNode& member_node = ast->child_nodes.emplace_back();
+            AstNode& member_node = ast->nodes.emplace_back();
             member_node.node_type = keyword == lexer::Keyword::Struct ? AstNodeType::StructMember : AstNodeType::UniformGroupMember;
             member_node.type = consume_name(ast->lexer_info);
             member_node.name = consume_name(ast->lexer_info);
@@ -202,12 +202,12 @@ namespace tungsten::parser
         consume_punctuation(ast->lexer_info, '}');
         consume_punctuation(ast->lexer_info, ';');
 
-        struct_node.num_children = ast->child_nodes.size() - struct_node.child_offset;
+        struct_node.num_children = ast->nodes.size() - struct_node.child_offset;
     }
 
     void consume_macro(Ast* ast)
     {
-        AstNode& macro_node = ast->root_nodes.emplace_back();
+        AstNode& macro_node = ast->nodes.emplace_back();
         macro_node.node_type = AstNodeType::Macro;
 
         consume_punctuation(ast->lexer_info, '#');
@@ -226,7 +226,7 @@ namespace tungsten::parser
 
     void consume_numeric_literal(Ast* ast)
     {
-        AstNode& literal_node = ast->child_nodes.emplace_back();
+        AstNode& literal_node = ast->nodes.emplace_back();
         literal_node.node_type = AstNodeType::NumericLiteral;
 
         literal_node.num_str = consume_number(ast->lexer_info);
@@ -253,7 +253,7 @@ namespace tungsten::parser
             {
                 if (token.str == operation)
                 {
-                    AstNode& operation_node = ast->child_nodes.emplace_back();
+                    AstNode& operation_node = ast->nodes.emplace_back();
                     operation_node.node_type = AstNodeType::BinaryOperation;
                     operation_node.operation = token.str;
                     return;
@@ -268,7 +268,7 @@ namespace tungsten::parser
         {
             if (token.str == operation)
             {
-                AstNode& operation_node = ast->child_nodes.emplace_back();
+                AstNode& operation_node = ast->nodes.emplace_back();
                 operation_node.node_type = AstNodeType::UnaryOperation;
                 operation_node.operation = token.str;
                 return;
@@ -282,9 +282,9 @@ namespace tungsten::parser
 
     void consume_expression(Ast* ast)
     {
-        AstNode& expression_node = ast->child_nodes.emplace_back();
+        AstNode& expression_node = ast->nodes.emplace_back();
         expression_node.node_type = AstNodeType::Expression;
-        expression_node.child_offset = ast->child_nodes.size();
+        expression_node.child_offset = ast->nodes.size();
 
         bool should_consume_binary_operation = false;
         while (true)
@@ -330,7 +330,7 @@ namespace tungsten::parser
             break;
         }
 
-        expression_node.num_children = ast->child_nodes.size() - expression_node.child_offset;
+        expression_node.num_children = ast->nodes.size() - expression_node.child_offset;
     }
 
     void consume_variable_or_function_call(Ast* ast)
@@ -341,9 +341,9 @@ namespace tungsten::parser
         if (peeked_token.type == lexer::TokenType::Punctuation && peeked_token.punc == '(')
         {
             // Consume function call
-            AstNode& function_call_node = ast->child_nodes.emplace_back();
+            AstNode& function_call_node = ast->nodes.emplace_back();
             function_call_node.node_type = AstNodeType::FunctionCall;
-            function_call_node.child_offset = ast->child_nodes.size();
+            function_call_node.child_offset = ast->nodes.size();
             function_call_node.name = name;
 
             consume_punctuation(ast->lexer_info, '(');
@@ -368,21 +368,21 @@ namespace tungsten::parser
             }
             consume_punctuation(ast->lexer_info, ')');
 
-            function_call_node.num_children = ast->child_nodes.size() - function_call_node.child_offset;
+            function_call_node.num_children = ast->nodes.size() - function_call_node.child_offset;
             return;
         }
 
         // Consume variable
-        AstNode& variable_node = ast->child_nodes.emplace_back();
+        AstNode& variable_node = ast->nodes.emplace_back();
         variable_node.node_type = AstNodeType::Variable;
         variable_node.name = name;
     }
 
     void consume_variable_declaration(Ast* ast, std::string_view type)
     {
-        AstNode& decl_node = ast->child_nodes.emplace_back();
+        AstNode& decl_node = ast->nodes.emplace_back();
         decl_node.node_type = AstNodeType::VariableDeclaration;
-        decl_node.child_offset = ast->child_nodes.size();
+        decl_node.child_offset = ast->nodes.size();
 
         decl_node.type = type;
         decl_node.name = consume_name(ast->lexer_info);
@@ -394,15 +394,15 @@ namespace tungsten::parser
         }
         consume_expression(ast);
 
-        decl_node.num_children = ast->child_nodes.size() - decl_node.child_offset;
+        decl_node.num_children = ast->nodes.size() - decl_node.child_offset;
     }
 
     void consume_variable_assignment(Ast* ast, std::string_view name)
     {
-        AstNode& assignment_node = ast->child_nodes.emplace_back();
+        AstNode& assignment_node = ast->nodes.emplace_back();
         assignment_node.node_type = AstNodeType::VariableAssignment;
         assignment_node.name = name;
-        assignment_node.child_offset = ast->child_nodes.size();
+        assignment_node.child_offset = ast->nodes.size();
 
         lexer::Token token = lexer::get_next_token(ast->lexer_info);
         if (token.type != lexer::TokenType::Operator)
@@ -420,7 +420,7 @@ namespace tungsten::parser
             {
                 assignment_node.type = token.str;
                 consume_expression(ast);
-                assignment_node.num_children = ast->child_nodes.size() - assignment_node.child_offset;
+                assignment_node.num_children = ast->nodes.size() - assignment_node.child_offset;
                 return;
             }
         }
@@ -428,7 +428,7 @@ namespace tungsten::parser
         if (token.str == "++" || token.str == "--")
         {
             assignment_node.type = token.str;
-            assignment_node.num_children = ast->child_nodes.size() - assignment_node.child_offset;
+            assignment_node.num_children = ast->nodes.size() - assignment_node.child_offset;
             return;
         }
 
@@ -439,9 +439,9 @@ namespace tungsten::parser
 
     void consume_if_statement(Ast* ast)
     {
-        AstNode& if_node = ast->child_nodes.emplace_back();
+        AstNode& if_node = ast->nodes.emplace_back();
         if_node.node_type = AstNodeType::IfStatement;
-        if_node.child_offset = ast->child_nodes.size();
+        if_node.child_offset = ast->nodes.size();
 
         consume_keyword(ast->lexer_info, lexer::Keyword::If);
         consume_punctuation(ast->lexer_info, '(');
@@ -450,15 +450,15 @@ namespace tungsten::parser
 
         consume_function_body(ast);
 
-        if_node.num_children = ast->child_nodes.size() - if_node.child_offset;
+        if_node.num_children = ast->nodes.size() - if_node.child_offset;
 
         while (try_consume_keyword(ast->lexer_info, lexer::Keyword::Else))
         {
             bool is_else_if = try_consume_keyword(ast->lexer_info, lexer::Keyword::If);
 
-            AstNode& else_node = ast->child_nodes.emplace_back();
+            AstNode& else_node = ast->nodes.emplace_back();
             else_node.node_type = is_else_if ? AstNodeType::ElseIfStatement : AstNodeType::ElseStatement;
-            else_node.child_offset = ast->child_nodes.size();
+            else_node.child_offset = ast->nodes.size();
 
             if (is_else_if)
             {
@@ -468,7 +468,7 @@ namespace tungsten::parser
             }
             consume_function_body(ast);
 
-            else_node.num_children = ast->child_nodes.size() - else_node.child_offset;
+            else_node.num_children = ast->nodes.size() - else_node.child_offset;
 
             if (!is_else_if)
             {
@@ -479,9 +479,9 @@ namespace tungsten::parser
 
     void consume_for_loop(Ast* ast)
     {
-        AstNode& for_node = ast->child_nodes.emplace_back();
+        AstNode& for_node = ast->nodes.emplace_back();
         for_node.node_type = AstNodeType::ForLoop;
-        for_node.child_offset = ast->child_nodes.size();
+        for_node.child_offset = ast->nodes.size();
 
         consume_keyword(ast->lexer_info, lexer::Keyword::For);
         consume_punctuation(ast->lexer_info, '(');
@@ -494,14 +494,14 @@ namespace tungsten::parser
 
         consume_function_body(ast);
 
-        for_node.num_children = ast->child_nodes.size() - for_node.child_offset;
+        for_node.num_children = ast->nodes.size() - for_node.child_offset;
     }
 
     void consume_while_loop(Ast* ast)
     {
-        AstNode& while_node = ast->child_nodes.emplace_back();
+        AstNode& while_node = ast->nodes.emplace_back();
         while_node.node_type = AstNodeType::WhileLoop;
-        while_node.child_offset = ast->child_nodes.size();
+        while_node.child_offset = ast->nodes.size();
 
         consume_keyword(ast->lexer_info, lexer::Keyword::While);
         consume_punctuation(ast->lexer_info, '(');
@@ -510,7 +510,7 @@ namespace tungsten::parser
 
         consume_function_body(ast);
 
-        while_node.num_children = ast->child_nodes.size() - while_node.child_offset;
+        while_node.num_children = ast->nodes.size() - while_node.child_offset;
     }
 
     void consume_function_body(Ast* ast)
@@ -553,25 +553,25 @@ namespace tungsten::parser
                     if (token.keyword == lexer::Keyword::Return)
                     {
                         consume_keyword(ast->lexer_info, lexer::Keyword::Return);
-                        AstNode& return_node = ast->child_nodes.emplace_back();
+                        AstNode& return_node = ast->nodes.emplace_back();
                         return_node.node_type = AstNodeType::ReturnStatement;
-                        return_node.child_offset = ast->child_nodes.size();
+                        return_node.child_offset = ast->nodes.size();
                         consume_expression(ast);
                         consume_punctuation(ast->lexer_info, ';');
-                        return_node.num_children = ast->child_nodes.size() - return_node.child_offset;
+                        return_node.num_children = ast->nodes.size() - return_node.child_offset;
                         continue;
                     }
                     goto unexpected_token;
                 case lexer::TokenType::Punctuation:
                     if (token.punc == '{')
                     {
-                        AstNode& scope_node = ast->child_nodes.emplace_back();
+                        AstNode& scope_node = ast->nodes.emplace_back();
                         scope_node.node_type = AstNodeType::Scope;
-                        scope_node.child_offset = ast->child_nodes.size();
+                        scope_node.child_offset = ast->nodes.size();
 
                         consume_function_body(ast);
 
-                        scope_node.num_children = ast->child_nodes.size() - scope_node.child_offset;
+                        scope_node.num_children = ast->nodes.size() - scope_node.child_offset;
                         continue;
                     }
                     if (token.punc == '}')
@@ -592,9 +592,9 @@ namespace tungsten::parser
 
     void consume_function(Ast* ast)
     {
-        AstNode& function_node = ast->root_nodes.emplace_back();
+        AstNode& function_node = ast->nodes.emplace_back();
         function_node.node_type = AstNodeType::Function;
-        function_node.child_offset = ast->child_nodes.size();
+        function_node.child_offset = ast->nodes.size();
 
         function_node.type = consume_name(ast->lexer_info);
         function_node.name = consume_name(ast->lexer_info);
@@ -608,7 +608,7 @@ namespace tungsten::parser
                 break;
             }
 
-            AstNode& arg_node = ast->child_nodes.emplace_back();
+            AstNode& arg_node = ast->nodes.emplace_back();
             arg_node.node_type = AstNodeType::FunctionArg;
 
             try_consume_attributes(ast, arg_node.attributes);
@@ -628,7 +628,7 @@ namespace tungsten::parser
 
         consume_function_body(ast);
 
-        function_node.num_children = ast->child_nodes.size() - function_node.child_offset;
+        function_node.num_children = ast->nodes.size() - function_node.child_offset;
     }
 
     Ast* generate_ast(std::string_view code)
@@ -643,6 +643,7 @@ namespace tungsten::parser
         {
             lexer::Token token = lexer::peek_next_token(ast->lexer_info);
             bool accepts_attributes = false;
+            uint16_t next_node_index = ast->nodes.size();
             switch (token.type)
             {
                 case lexer::TokenType::Keyword:
@@ -674,7 +675,8 @@ namespace tungsten::parser
             }
             if (accepts_attributes)
             {
-                std::swap(attributes, ast->root_nodes.back().attributes);
+                assert(next_node_index < ast->nodes.size());
+                std::swap(attributes, ast->nodes[next_node_index].attributes);
             }
         }
 
@@ -783,10 +785,10 @@ namespace tungsten::parser
         }
         std::cout << '\n';
 
-        // Note: This assumes that all children of a parent are found immediatley after that parent
+        // Note: This assumes that all children of a parent are found immediateley after that parent
         for (uint16_t i = node->child_offset; i < node->child_offset + node->num_children; i++)
         {
-            const AstNode* child_node = &ast->child_nodes[i];
+            const AstNode* child_node = &ast->nodes[i];
             print_ast_node(ast, child_node, indent + 1);
             i += child_node->num_children;
         }
@@ -794,10 +796,11 @@ namespace tungsten::parser
 
     void print_ast(const Ast* ast)
     {
-        std::string indent;
-        for (const AstNode& node : ast->root_nodes)
+        for (uint16_t i = 0; i < ast->nodes.size(); i++)
         {
-            print_ast_node(ast, &node, 1);
+            const AstNode* node = &ast->nodes[i];
+            print_ast_node(ast, node, 1);
+            i += node->num_children;
         }
     }
 }
