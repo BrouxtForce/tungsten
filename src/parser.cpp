@@ -167,8 +167,16 @@ namespace tungsten::parser
         AstNode& struct_node = ast->nodes.emplace_back();
         uint32_t child_offset = ast->nodes.size();
 
-        lexer::Keyword keyword = consume_keyword<2>(ast->lexer_info, { lexer::Keyword::Struct, lexer::Keyword::UniformGroup });
-        struct_node.node_type = keyword == lexer::Keyword::Struct ? AstNodeType::Struct : AstNodeType::UniformGroup;
+        lexer::Keyword keyword = consume_keyword<3>(ast->lexer_info, {
+            lexer::Keyword::Struct, lexer::Keyword::UniformGroup, lexer::Keyword::VertexGroup }
+        );
+        switch (keyword)
+        {
+            case lexer::Keyword::Struct:       struct_node.node_type = AstNodeType::Struct; break;
+            case lexer::Keyword::UniformGroup: struct_node.node_type = AstNodeType::UniformGroup; break;
+            case lexer::Keyword::VertexGroup:  struct_node.node_type = AstNodeType::VertexGroup; break;
+            default: assert(false);
+        }
         struct_node.name = consume_name(ast->lexer_info);
         consume_punctuation(ast->lexer_info, '{');
 
@@ -187,7 +195,13 @@ namespace tungsten::parser
             }
 
             AstNode& member_node = ast->nodes.emplace_back();
-            member_node.node_type = keyword == lexer::Keyword::Struct ? AstNodeType::StructMember : AstNodeType::UniformGroupMember;
+            switch (keyword)
+            {
+                case lexer::Keyword::Struct:       member_node.node_type = AstNodeType::StructMember; break;
+                case lexer::Keyword::UniformGroup: member_node.node_type = AstNodeType::UniformGroupMember; break;
+                case lexer::Keyword::VertexGroup:  member_node.node_type = AstNodeType::VertexGroupMember; break;
+                default: assert(false);
+            }
             member_node.type = consume_name(ast->lexer_info);
             member_node.name = consume_name(ast->lexer_info);
 
@@ -730,6 +744,13 @@ namespace tungsten::parser
                 break;
             case AstNodeType::UniformGroupMember:
                 std::cout << "uniform_group_member " << node->type << ' ' << node->name;
+                break;
+
+            case AstNodeType::VertexGroup:
+                std::cout << "vertex_group " << node->name;
+                break;
+            case AstNodeType::VertexGroupMember:
+                std::cout << "vertex_group_member " << node->type << ' ' << node->name;
                 break;
 
             case AstNodeType::Macro:

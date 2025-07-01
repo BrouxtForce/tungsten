@@ -22,6 +22,7 @@ namespace tungsten::lexer
 
         Struct,
         UniformGroup,
+        VertexGroup,
 
         If,
         Else,

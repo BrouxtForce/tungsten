@@ -161,6 +161,7 @@ namespace tungsten::lexer
 
         if (name == "struct")        keyword = Keyword::Struct;
         if (name == "uniform_group") keyword = Keyword::UniformGroup;
+        if (name == "vertex_group")  keyword = Keyword::VertexGroup;
 
         if (name == "if")       keyword = Keyword::If;
         if (name == "else")     keyword = Keyword::Else;

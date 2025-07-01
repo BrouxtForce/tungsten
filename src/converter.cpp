@@ -134,6 +134,34 @@ namespace tungsten::converter
         stream << "}* " << node->name << " [[buffer(0)]];\n\n";
     }
 
+    void output_vertex_group(const Ast* ast, const AstNode* node, std::ostream& stream, int indent)
+    {
+        // TODO: Use attributes to declare the address space
+        constexpr std::string_view address_space = "device";
+
+        assert(node->node_type == AstNodeType::VertexGroup);
+
+        stream << get_indent(indent);
+        if (output_attributes(node->attributes, stream))
+        {
+            stream << '\n';
+        }
+        stream << address_space << " struct {\n";
+        int id = 0;
+        iterate_node_children(ast, node, [&id, &indent, &stream](const AstNode* child_node) {
+            assert(child_node->node_type == AstNodeType::VertexGroupMember);
+
+            stream << get_indent(indent + 1);
+            if (output_attributes(child_node->attributes, stream))
+            {
+                stream << ' ';
+            }
+            stream << child_node->type << ' ' << child_node->name << " [[id(" << id++ << ")]];\n";
+            return true;
+        });
+        // TODO: Automatic buffer binding + texture binding
+        stream << "}* " << node->name << " [[buffer(0)]];\n\n";
+    }
 
     void output_function(const Ast* ast, const AstNode* node, std::ostream& stream, int indent)
     {
@@ -389,6 +417,9 @@ namespace tungsten::converter
                 break;
             case AstNodeType::UniformGroup:
                 output_uniform_group(ast, node, stream, indent);
+                break;
+            case AstNodeType::VertexGroup:
+                output_vertex_group(ast, node, stream, indent);
                 break;
 
             case AstNodeType::Function:

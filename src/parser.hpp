@@ -19,6 +19,9 @@ namespace tungsten::parser
         UniformGroup,
         UniformGroupMember,
 
+        VertexGroup,
+        VertexGroupMember,
+
         Macro,
 
         Function,

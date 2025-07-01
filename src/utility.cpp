@@ -22,7 +22,7 @@ namespace tungsten::utility
 
         std::string buffer(file_size, '\0');
 
-        std::ifstream file(filepath, std::ios_base::binary);
+        std::ifstream file(std::string(filepath), std::ios_base::binary);
         file.read(buffer.data(), file_size);
 
         return buffer;
