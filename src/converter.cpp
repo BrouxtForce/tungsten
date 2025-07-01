@@ -65,9 +65,44 @@ namespace tungsten::converter
         return nullptr;
     }
 
+    bool output_wgsl_attribute(const Attribute& attribute, std::ostream& stream)
+    {
+        // TODO: Have conversions to all WGSL supported attributes
+        std::array<std::pair<std::string_view, std::string_view>, 6> attribute_conversions {
+            std::pair{ "vertex", "@vertex" },
+            std::pair{ "fragment", "@fragment" },
+            std::pair{ "compute", "@compute" },
+
+            std::pair{ "vertex_id", "@builtin(vertex_index)" },
+            std::pair{ "instance_id", "@builtin(instance_index)" },
+            std::pair{ "position", "@builtin(position)" }
+        };
+
+        for (const auto& [from, to] : attribute_conversions)
+        {
+            if (attribute.name == from)
+            {
+                stream << to;
+                return true;
+            }
+        }
+        return false;
+    }
+
     bool output_attributes(const std::vector<Attribute>& attributes, std::ostream& stream)
     {
-        if (language_target == LanguageTargetWGSL) return false;
+        if (language_target == LanguageTargetWGSL)
+        {
+            bool did_output_attribute = false;
+            for (const Attribute& attribute : attributes)
+            {
+                if (output_wgsl_attribute(attribute, stream))
+                {
+                    did_output_attribute = true;
+                }
+            }
+            return did_output_attribute;
+        }
 
         for (const Attribute& attribute : attributes)
         {
@@ -104,9 +139,14 @@ namespace tungsten::converter
             {
                 stream << ' ';
             }
-            stream << child_node->type << ' ' << child_node->name;
-            if (language_target == LanguageTargetMSL) stream << ";\n";
-            if (language_target == LanguageTargetWGSL) stream << ",\n";
+            if (language_target == LanguageTargetMSL)
+            {
+                stream << child_node->type << ' ' << child_node->name << ";\n";
+            }
+            if (language_target == LanguageTargetWGSL)
+            {
+                stream << child_node->name << ": " << child_node->type << ",\n";
+            }
             return true;
         });
         stream << "};\n\n";
@@ -151,6 +191,10 @@ namespace tungsten::converter
                 assert(child_node->node_type == AstNodeType::UniformGroupMember);
 
                 stream << get_indent(indent + 1);
+                if (output_attributes(child_node->attributes, stream))
+                {
+                    stream << ' ';
+                }
                 stream << child_node->name << ": " << child_node->type << ",\n";
 
                 return true;
