@@ -65,6 +65,62 @@ namespace tungsten::converter
         return nullptr;
     }
 
+    std::string convert_type_wgsl(std::string_view type)
+    {
+        // TODO: Support all WGSL types
+        std::array<std::string_view, 5> scalar_types { "bool", "half", "float", "uint", "int" };
+        std::array<std::string_view, 5> wgsl_scalar_types { "bool", "f16", "f32", "u32", "i32" };
+        std::array<std::string_view, 5> scalar_type_suffixes { "b", "h", "f", "u", "i" };
+        for (size_t i = 0; i < scalar_types.size(); i++)
+        {
+            if (!type.starts_with(scalar_types[i]))
+            {
+                continue;
+            }
+
+            std::string_view count = type.substr(scalar_types[i].size());
+            if (count.empty())
+            {
+                return (std::string)wgsl_scalar_types[i];
+            }
+
+            if (i == 0)
+            {
+                // Boolean vector types do not seem to have predeclared aliases
+                if (count == "2") return "vec2<bool>";
+                if (count == "3") return "vec3<bool>";
+                if (count == "4") return "vec4<bool>";
+                break;
+            }
+
+            if (count == "2") return "vec2" + (std::string)scalar_type_suffixes[i];
+            if (count == "3") return "vec3" + (std::string)scalar_type_suffixes[i];
+            if (count == "4") return "vec4" + (std::string)scalar_type_suffixes[i];
+
+            // TODO: Exclude int and uint from matrix types
+            if (count == "4x4")
+            {
+                return "mat4x4" + std::string(1, wgsl_scalar_types[i][0]);
+            }
+            break;
+        }
+        return (std::string)type;
+    }
+
+    std::string convert_type(std::string_view type)
+    {
+        if (language_target == LanguageTargetMSL)
+        {
+            return (std::string)type;
+        }
+        if (language_target == LanguageTargetWGSL)
+        {
+            return convert_type_wgsl(type);
+        }
+        assert(false);
+        return {};
+    }
+
     bool output_wgsl_attribute(const Attribute& attribute, std::ostream& stream)
     {
         // TODO: Have conversions to all WGSL supported attributes
@@ -141,11 +197,11 @@ namespace tungsten::converter
             }
             if (language_target == LanguageTargetMSL)
             {
-                stream << child_node->type << ' ' << child_node->name << ";\n";
+                stream << convert_type(child_node->type) << ' ' << child_node->name << ";\n";
             }
             if (language_target == LanguageTargetWGSL)
             {
-                stream << child_node->name << ": " << child_node->type << ",\n";
+                stream << child_node->name << ": " << convert_type(child_node->type) << ",\n";
             }
             return true;
         });
@@ -176,7 +232,7 @@ namespace tungsten::converter
                 {
                     stream << ' ';
                 }
-                stream << child_node->type << ' ' << child_node->name << ";\n";
+                stream << convert_type(child_node->type) << ' ' << child_node->name << ";\n";
                 return true;
             });
             // TODO: Automatic buffer binding + texture binding
@@ -195,7 +251,7 @@ namespace tungsten::converter
                 {
                     stream << ' ';
                 }
-                stream << child_node->name << ": " << child_node->type << ",\n";
+                stream << child_node->name << ": " << convert_type(child_node->type) << ",\n";
 
                 return true;
             });
@@ -230,7 +286,7 @@ namespace tungsten::converter
                 {
                     stream << ' ';
                 }
-                stream << child_node->type << ' ' << child_node->name << " [[id(" << id++ << ")]];\n";
+                stream << convert_type(child_node->type) << ' ' << child_node->name << " [[id(" << id++ << ")]];\n";
                 return true;
             });
             // TODO: Automatic buffer binding + texture binding
@@ -245,7 +301,7 @@ namespace tungsten::converter
                 assert(child_node->node_type == AstNodeType::VertexGroupMember);
 
                 stream << get_indent(indent + 1);
-                stream << child_node->name << ": " << child_node->type << ",\n";
+                stream << child_node->name << ": " << convert_type(child_node->type) << ",\n";
 
                 return true;
             });
@@ -267,7 +323,7 @@ namespace tungsten::converter
         }
         if (language_target == LanguageTargetMSL)
         {
-            stream << node->type << ' ';
+            stream << convert_type(node->type) << ' ';
         }
         if (language_target == LanguageTargetWGSL)
         {
@@ -289,12 +345,12 @@ namespace tungsten::converter
                 }
                 if (language_target == LanguageTargetMSL)
                 {
-                    stream << child_node->type << ' ';
+                    stream << convert_type(child_node->type) << ' ';
                 }
                 stream << child_node->name;
                 if (language_target == LanguageTargetWGSL)
                 {
-                    stream << ": " << child_node->type;
+                    stream << ": " << convert_type(child_node->type);
                 }
                 is_first_child = false;
                 return true;
@@ -308,7 +364,7 @@ namespace tungsten::converter
         }
         if (language_target == LanguageTargetWGSL)
         {
-            stream << ") -> " << node->type << " {\n";
+            stream << ") -> " << convert_type(node->type) << " {\n";
         }
 
         iterate_node_children(ast, node, [&ast, &indent, &stream](const AstNode* child_node) {
@@ -404,11 +460,11 @@ namespace tungsten::converter
         stream << get_indent(indent);
         if (language_target == LanguageTargetMSL)
         {
-            stream << node->type << ' ' << node->name;
+            stream << convert_type(node->type) << ' ' << node->name;
         }
         if (language_target == LanguageTargetWGSL)
         {
-            stream << "var " << node->name << ": " << node->type;
+            stream << "var " << node->name << ": " << convert_type(node->type);
         }
 
         if (node->num_children > 0)
