@@ -12,6 +12,8 @@ namespace tungsten::converter
 {
     using namespace parser;
 
+    static uint32_t language_target = 0;
+
     void output_node(const Ast* ast, const AstNode* node, std::ostream& stream, int indent);
 
     std::string_view get_indent(int indent)
@@ -65,6 +67,8 @@ namespace tungsten::converter
 
     bool output_attributes(const std::vector<Attribute>& attributes, std::ostream& stream)
     {
+        if (language_target == LanguageTargetWGSL) return false;
+
         for (const Attribute& attribute : attributes)
         {
             stream << "[[" << attribute.name;
@@ -100,7 +104,9 @@ namespace tungsten::converter
             {
                 stream << ' ';
             }
-            stream << child_node->type << ' ' << child_node->name << ";\n";
+            stream << child_node->type << ' ' << child_node->name;
+            if (language_target == LanguageTargetMSL) stream << ";\n";
+            if (language_target == LanguageTargetWGSL) stream << ",\n";
             return true;
         });
         stream << "};\n\n";
@@ -108,59 +114,102 @@ namespace tungsten::converter
 
     void output_uniform_group(const Ast* ast, const AstNode* node, std::ostream& stream, int indent)
     {
-        // TODO: Use attributes to declare the address space
-        constexpr std::string_view address_space = "device";
-
         assert(node->node_type == AstNodeType::UniformGroup);
-
-        stream << get_indent(indent);
-        if (output_attributes(node->attributes, stream))
+        // TODO: This should not be an assert
+        assert(!node->name.starts_with('_') && "Uniform group names must not start with an underscore");
+        if (language_target == LanguageTargetMSL)
         {
-            stream << '\n';
-        }
-        stream << address_space << " struct {\n";
-        iterate_node_children(ast, node, [&indent, &stream](const AstNode* child_node) {
-            assert(child_node->node_type == AstNodeType::UniformGroupMember);
+            // TODO: Use attributes to declare the address space
+            constexpr std::string_view address_space = "device";
 
-            stream << get_indent(indent + 1);
-            if (output_attributes(child_node->attributes, stream))
+            stream << get_indent(indent);
+            if (output_attributes(node->attributes, stream))
             {
-                stream << ' ';
+                stream << '\n';
             }
-            stream << child_node->type << ' ' << child_node->name << ";\n";
-            return true;
-        });
-        // TODO: Automatic buffer binding + texture binding
-        stream << "}* " << node->name << " [[buffer(0)]];\n\n";
+            stream << address_space << " struct {\n";
+            iterate_node_children(ast, node, [&indent, &stream](const AstNode* child_node) {
+                assert(child_node->node_type == AstNodeType::UniformGroupMember);
+
+                stream << get_indent(indent + 1);
+                if (output_attributes(child_node->attributes, stream))
+                {
+                    stream << ' ';
+                }
+                stream << child_node->type << ' ' << child_node->name << ";\n";
+                return true;
+            });
+            // TODO: Automatic buffer binding + texture binding
+            stream << "}* " << node->name << " [[buffer(0)]];\n\n";
+            return;
+        }
+        if (language_target == LanguageTargetWGSL)
+        {
+            stream << get_indent(indent) << "struct _" << node->name << "_t {\n";
+            // TODO: Output attributes
+            iterate_node_children(ast, node, [&indent, &stream](const AstNode* child_node) {
+                assert(child_node->node_type == AstNodeType::UniformGroupMember);
+
+                stream << get_indent(indent + 1);
+                stream << child_node->name << ": " << child_node->type << ",\n";
+
+                return true;
+            });
+            stream << "};\n\n@group(0) @binding(0) var<uniform> " << node->name << ": _" << node->name << "_t;\n\n";
+            return;
+        }
+        assert(false);
     }
 
     void output_vertex_group(const Ast* ast, const AstNode* node, std::ostream& stream, int indent)
     {
-        // TODO: Use attributes to declare the address space
-        constexpr std::string_view address_space = "device";
-
         assert(node->node_type == AstNodeType::VertexGroup);
-
-        stream << get_indent(indent);
-        if (output_attributes(node->attributes, stream))
+        // TODO: This should not be an assert
+        assert(!node->name.starts_with('_') && "Vertex group names must not start with an underscore");
+        if (language_target == LanguageTargetMSL)
         {
-            stream << '\n';
-        }
-        stream << address_space << " struct {\n";
-        int id = 0;
-        iterate_node_children(ast, node, [&id, &indent, &stream](const AstNode* child_node) {
-            assert(child_node->node_type == AstNodeType::VertexGroupMember);
+            // TODO: Use attributes to declare the address space
+            constexpr std::string_view address_space = "device";
 
-            stream << get_indent(indent + 1);
-            if (output_attributes(child_node->attributes, stream))
+            stream << get_indent(indent);
+            if (output_attributes(node->attributes, stream))
             {
-                stream << ' ';
+                stream << '\n';
             }
-            stream << child_node->type << ' ' << child_node->name << " [[id(" << id++ << ")]];\n";
-            return true;
-        });
-        // TODO: Automatic buffer binding + texture binding
-        stream << "}* " << node->name << " [[buffer(0)]];\n\n";
+            stream << address_space << " struct {\n";
+            int id = 0;
+            iterate_node_children(ast, node, [&id, &indent, &stream](const AstNode* child_node) {
+                assert(child_node->node_type == AstNodeType::VertexGroupMember);
+
+                stream << get_indent(indent + 1);
+                if (output_attributes(child_node->attributes, stream))
+                {
+                    stream << ' ';
+                }
+                stream << child_node->type << ' ' << child_node->name << " [[id(" << id++ << ")]];\n";
+                return true;
+            });
+            // TODO: Automatic buffer binding + texture binding
+            stream << "}* " << node->name << " [[buffer(0)]];\n\n";
+            return;
+        }
+        if (language_target == LanguageTargetWGSL)
+        {
+            stream << get_indent(indent) << "struct _" << node->name << "_t {\n";
+            // TODO: Output attributes
+            iterate_node_children(ast, node, [&indent, &stream](const AstNode* child_node) {
+                assert(child_node->node_type == AstNodeType::VertexGroupMember);
+
+                stream << get_indent(indent + 1);
+                stream << child_node->name << ": " << child_node->type << ",\n";
+
+                return true;
+            });
+            stream << "};\n\n";
+            // TODO: This needs to be an input argument to the vertex function
+            return;
+        }
+        assert(false);
     }
 
     void output_function(const Ast* ast, const AstNode* node, std::ostream& stream, int indent)
@@ -172,7 +221,15 @@ namespace tungsten::converter
         {
             stream << '\n';
         }
-        stream << node->type << ' ' << node->name << '(';
+        if (language_target == LanguageTargetMSL)
+        {
+            stream << node->type << ' ';
+        }
+        if (language_target == LanguageTargetWGSL)
+        {
+            stream << "fn ";
+        }
+        stream << node->name << '(';
 
         bool is_first_child = true;
         iterate_node_children(ast, node, [&stream, &is_first_child](const AstNode* child_node) {
@@ -186,14 +243,29 @@ namespace tungsten::converter
                 {
                     stream << ' ';
                 }
-                stream << child_node->type << ' ' << child_node->name;
+                if (language_target == LanguageTargetMSL)
+                {
+                    stream << child_node->type << ' ';
+                }
+                stream << child_node->name;
+                if (language_target == LanguageTargetWGSL)
+                {
+                    stream << ": " << child_node->type;
+                }
                 is_first_child = false;
                 return true;
             }
             return false;
         });
 
-        stream << ") {\n";
+        if (language_target == LanguageTargetMSL)
+        {
+            stream << ") {\n";
+        }
+        if (language_target == LanguageTargetWGSL)
+        {
+            stream << ") -> " << node->type << " {\n";
+        }
 
         iterate_node_children(ast, node, [&ast, &indent, &stream](const AstNode* child_node) {
             if (child_node->node_type == AstNodeType::FunctionArg)
@@ -286,7 +358,14 @@ namespace tungsten::converter
         assert(node->node_type == AstNodeType::VariableDeclaration);
 
         stream << get_indent(indent);
-        stream << node->type << ' ' << node->name;
+        if (language_target == LanguageTargetMSL)
+        {
+            stream << node->type << ' ' << node->name;
+        }
+        if (language_target == LanguageTargetWGSL)
+        {
+            stream << "var " << node->name << ": " << node->type;
+        }
 
         if (node->num_children > 0)
         {
@@ -298,8 +377,11 @@ namespace tungsten::converter
         }
         else
         {
-            // Uninitialized variable
-            stream << "{}";
+            if (language_target == LanguageTargetMSL)
+            {
+                // Uninitialized variable
+                stream << "{}";
+            }
         }
 
         if (output_semicolon) stream << ";\n";
@@ -454,8 +536,10 @@ namespace tungsten::converter
         }
     }
 
-    void to_msl(const Ast* ast, std::ostream& stream)
+    void convert(const Ast* ast, std::ostream& stream, LanguageTarget output_target)
     {
+        assert(output_target == LanguageTargetMSL || output_target == LanguageTargetWGSL);
+        language_target = output_target;
         for (uint32_t i = 0; i < ast->nodes.size(); i++)
         {
             const AstNode* child_node = &ast->nodes[i];

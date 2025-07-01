@@ -51,6 +51,9 @@ int main(int argc, char** argv)
 
     bool should_print_ast = false;
 
+    using tungsten::converter::LanguageTarget;
+    LanguageTarget output_target = LanguageTarget::LanguageTargetMSL;
+
     while (!args.done())
     {
         if (args.is_flag())
@@ -79,6 +82,11 @@ int main(int argc, char** argv)
             if (next_arg == "--print-ast")
             {
                 should_print_ast = true;
+                continue;
+            }
+            if (next_arg == "--wgsl")
+            {
+                output_target = LanguageTarget::LanguageTargetWGSL;
                 continue;
             }
             std::cerr << "Invalid argument '" << next_arg << "'\n";
@@ -126,7 +134,7 @@ int main(int argc, char** argv)
         error::init_error_info(input_filepath, code);
 
         parser::Ast* ast = parser::generate_ast(code);
-        converter::to_msl(ast, std::cout);
+        converter::convert(ast, std::cout, output_target);
 
         parser::free_ast(ast);
     }

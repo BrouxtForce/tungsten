@@ -5,5 +5,11 @@
 
 namespace tungsten::converter
 {
-    void to_msl(const parser::Ast* ast, std::ostream& stream);
+    enum LanguageTarget
+    {
+        LanguageTargetMSL,
+        LanguageTargetWGSL
+    };
+
+    void convert(const parser::Ast* ast, std::ostream& stream, LanguageTarget output_target);
 }
