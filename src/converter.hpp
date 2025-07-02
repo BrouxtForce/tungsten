@@ -11,5 +11,5 @@ namespace tungsten::converter
         LanguageTargetWGSL
     };
 
-    void convert(const parser::Ast* ast, std::ostream& stream, LanguageTarget output_target);
+    void convert(const parser::Ast* ast, std::ostream& stream, LanguageTarget output_target, std::ostream* reflection_stream = nullptr);
 }

@@ -2,7 +2,6 @@
 #include "parser.hpp"
 
 #include <cstring>
-#include <sstream>
 #include <iostream>
 #include <functional>
 #include <cassert>
@@ -14,6 +13,7 @@ namespace tungsten::converter
 
     static uint32_t language_target = 0;
     static uint32_t next_binding = 0;
+    static std::ostream* reflection_info = nullptr;
 
     void output_node(const Ast* ast, const AstNode* node, std::ostream& stream, int indent);
 
@@ -214,6 +214,20 @@ namespace tungsten::converter
         assert(node->node_type == AstNodeType::UniformGroup);
         // TODO: This should not be an assert
         assert(!node->name.starts_with('_') && "Uniform group names must not start with an underscore");
+
+        if (reflection_info != nullptr) {
+            *reflection_info << "uniform_group " << node->name << ' ' << next_binding << " { ";
+            bool is_first_child = true;
+            iterate_node_children(ast, node, [&is_first_child](const AstNode* child_node) {
+                assert(child_node->node_type == AstNodeType::UniformGroupMember);
+                if (!is_first_child) *reflection_info << ", ";
+                is_first_child = false;
+                *reflection_info << child_node->type << ' ' << child_node->name;
+                return true;
+            });
+            *reflection_info << " }\n";
+        }
+
         if (language_target == LanguageTargetMSL)
         {
             // TODO: Use attributes to declare the address space
@@ -266,6 +280,20 @@ namespace tungsten::converter
         assert(node->node_type == AstNodeType::VertexGroup);
         // TODO: This should not be an assert
         assert(!node->name.starts_with('_') && "Vertex group names must not start with an underscore");
+
+        if (reflection_info != nullptr) {
+            *reflection_info << "vertex_group " << node->name << " { ";
+            bool is_first_child = true;
+            iterate_node_children(ast, node, [&is_first_child](const AstNode* child_node) {
+                assert(child_node->node_type == AstNodeType::VertexGroupMember);
+                if (!is_first_child) *reflection_info << ", ";
+                is_first_child = false;
+                *reflection_info << child_node->type << ' ' << child_node->name;
+                return true;
+            });
+            *reflection_info << " }\n";
+        }
+
         if (language_target == LanguageTargetMSL)
         {
             stream << get_indent(indent);
@@ -654,11 +682,12 @@ namespace tungsten::converter
         }
     }
 
-    void convert(const Ast* ast, std::ostream& stream, LanguageTarget output_target)
+    void convert(const Ast* ast, std::ostream& stream, LanguageTarget output_target, std::ostream* reflection_stream)
     {
         assert(output_target == LanguageTargetMSL || output_target == LanguageTargetWGSL);
         language_target = output_target;
         next_binding = 0;
+        reflection_info = reflection_stream;
 
         if (language_target == LanguageTargetMSL)
         {

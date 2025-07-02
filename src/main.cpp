@@ -2,6 +2,7 @@
 #include <iostream>
 #include <string>
 #include <cassert>
+#include <sstream>
 
 #include "lexer.hpp"
 #include "utility.hpp"
@@ -50,6 +51,7 @@ int main(int argc, char** argv)
     std::string output_filepath;
 
     bool should_print_ast = false;
+    bool should_print_reflection = false;
 
     using tungsten::converter::LanguageTarget;
     LanguageTarget output_target = LanguageTarget::LanguageTargetMSL;
@@ -82,6 +84,11 @@ int main(int argc, char** argv)
             if (next_arg == "--print-ast")
             {
                 should_print_ast = true;
+                continue;
+            }
+            if (next_arg == "--reflection")
+            {
+                should_print_reflection = true;
                 continue;
             }
             if (next_arg == "--wgsl")
@@ -134,7 +141,14 @@ int main(int argc, char** argv)
         error::init_error_info(input_filepath, code);
 
         parser::Ast* ast = parser::generate_ast(code);
-        converter::convert(ast, std::cout, output_target);
+        std::stringstream reflection_stream;
+
+        converter::convert(ast, std::cout, output_target, &reflection_stream);
+
+        if (should_print_reflection)
+        {
+            std::cout << "/* Reflection info: \n" << reflection_stream.str() << "*/\n";
+        }
 
         parser::free_ast(ast);
     }
