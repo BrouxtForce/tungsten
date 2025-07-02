@@ -13,6 +13,7 @@ namespace tungsten::converter
     using namespace parser;
 
     static uint32_t language_target = 0;
+    static uint32_t next_binding = 0;
 
     void output_node(const Ast* ast, const AstNode* node, std::ostream& stream, int indent);
 
@@ -235,8 +236,7 @@ namespace tungsten::converter
                 stream << convert_type(child_node->type) << ' ' << child_node->name << ";\n";
                 return true;
             });
-            // TODO: Automatic buffer binding + texture binding
-            stream << "}* " << node->name << " [[buffer(0)]];\n\n";
+            stream << "}* " << node->name << " [[buffer(" << (next_binding++) << ")]];\n\n";
             return;
         }
         if (language_target == LanguageTargetWGSL)
@@ -255,7 +255,7 @@ namespace tungsten::converter
 
                 return true;
             });
-            stream << "};\n\n@group(0) @binding(0) var<uniform> " << node->name << ": _" << node->name << "_t;\n\n";
+            stream << "};\n\n@group(" << (next_binding++) << ") @binding(0) var<uniform> " << node->name << ": _" << node->name << "_t;\n\n";
             return;
         }
         assert(false);
@@ -268,17 +268,14 @@ namespace tungsten::converter
         assert(!node->name.starts_with('_') && "Vertex group names must not start with an underscore");
         if (language_target == LanguageTargetMSL)
         {
-            // TODO: Use attributes to declare the address space
-            constexpr std::string_view address_space = "device";
-
             stream << get_indent(indent);
             if (output_attributes(node->attributes, stream))
             {
                 stream << '\n';
             }
-            stream << address_space << " struct {\n";
-            int id = 0;
-            iterate_node_children(ast, node, [&id, &indent, &stream](const AstNode* child_node) {
+            stream << " struct " << node->name << " {\n";
+            int attribute = 0;
+            iterate_node_children(ast, node, [&attribute, &indent, &stream](const AstNode* child_node) {
                 assert(child_node->node_type == AstNodeType::VertexGroupMember);
 
                 stream << get_indent(indent + 1);
@@ -286,27 +283,25 @@ namespace tungsten::converter
                 {
                     stream << ' ';
                 }
-                stream << convert_type(child_node->type) << ' ' << child_node->name << " [[id(" << id++ << ")]];\n";
+                stream << convert_type(child_node->type) << ' ' << child_node->name << " [[attribute(" << (attribute++) << ")]];\n";
                 return true;
             });
-            // TODO: Automatic buffer binding + texture binding
-            stream << "}* " << node->name << " [[buffer(0)]];\n\n";
+            stream << "};\n\n";
             return;
         }
         if (language_target == LanguageTargetWGSL)
         {
-            stream << get_indent(indent) << "struct _" << node->name << "_t {\n";
-            // TODO: Output attributes
-            iterate_node_children(ast, node, [&indent, &stream](const AstNode* child_node) {
+            stream << get_indent(indent) << "struct " << node->name << " {\n";
+            int location = 0;
+            iterate_node_children(ast, node, [&location, &indent, &stream](const AstNode* child_node) {
                 assert(child_node->node_type == AstNodeType::VertexGroupMember);
 
                 stream << get_indent(indent + 1);
-                stream << child_node->name << ": " << convert_type(child_node->type) << ",\n";
+                stream << "@location(" << (location++) << ") " << child_node->name << ": " << convert_type(child_node->type) << ",\n";
 
                 return true;
             });
             stream << "};\n\n";
-            // TODO: This needs to be an input argument to the vertex function
             return;
         }
         assert(false);
@@ -342,6 +337,11 @@ namespace tungsten::converter
                 if (output_attributes(child_node->attributes, stream))
                 {
                     stream << ' ';
+                }
+                else if (language_target == LanguageTargetMSL)
+                {
+                    // TODO: Validation
+                    stream << "[[stage_in]] ";
                 }
                 if (language_target == LanguageTargetMSL)
                 {
@@ -658,6 +658,7 @@ namespace tungsten::converter
     {
         assert(output_target == LanguageTargetMSL || output_target == LanguageTargetWGSL);
         language_target = output_target;
+        next_binding = 0;
 
         if (language_target == LanguageTargetMSL)
         {
@@ -669,6 +670,11 @@ namespace tungsten::converter
             const AstNode* child_node = &ast->nodes[i];
             output_node(ast, child_node, stream, 0);
             i += child_node->num_children;
+        }
+
+        if (next_binding > 4)
+        {
+            std::cerr << "Warning: WGSL implementations have a default max bind group count of 4, and this shader exceeds this limit.\n";
         }
     }
 }
