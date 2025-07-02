@@ -658,6 +658,12 @@ namespace tungsten::converter
     {
         assert(output_target == LanguageTargetMSL || output_target == LanguageTargetWGSL);
         language_target = output_target;
+
+        if (language_target == LanguageTargetMSL)
+        {
+            stream << "#include <metal_stdlib>\n\nusing namespace metal;\n\n";
+        }
+
         for (uint32_t i = 0; i < ast->nodes.size(); i++)
         {
             const AstNode* child_node = &ast->nodes[i];
