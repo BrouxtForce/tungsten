@@ -36,6 +36,7 @@ namespace tungsten::parser
         UnaryOperation,
         BinaryOperation,
         Variable,
+        Property,
         FunctionCall,
 
         IfStatement,

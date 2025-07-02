@@ -423,6 +423,14 @@ namespace tungsten::converter
                 case AstNodeType::Variable:
                     stream << child_node->name;
                     needs_spacing = true;
+                    for (size_t i = child_node->index + 1; i < ast->nodes.size(); i++)
+                    {
+                        if (ast->nodes[i].node_type != AstNodeType::Property)
+                        {
+                            break;
+                        }
+                        stream << '.' << ast->nodes[i].name;
+                    }
                     break;
                 case AstNodeType::FunctionCall:
                     output_function_call(ast, child_node, stream);
@@ -493,13 +501,23 @@ namespace tungsten::converter
 
         stream << get_indent(indent);
 
+        stream << node->name;
+        for (size_t i = node->index + 1; i < ast->nodes.size(); i++)
+        {
+            if (ast->nodes[i].node_type != AstNodeType::Property)
+            {
+                break;
+            }
+            stream << '.' << ast->nodes[i].name;
+        }
+
         if (node->operation == "++" || node->operation == "--")
         {
-            stream << node->name << node->operation;
+            stream << node->operation;
         }
         else
         {
-            stream << node->name << ' ' << node->operation << ' ';
+            stream << ' ' << node->operation << ' ';
         }
 
         iterate_node_children(ast, node, [&ast, &stream](const AstNode* child_node) {

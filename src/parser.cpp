@@ -1,4 +1,5 @@
 #include "parser.hpp"
+#include "builtins.hpp"
 #include "error.hpp"
 #include "lexer.hpp"
 
@@ -348,6 +349,23 @@ namespace tungsten::parser
         expression_node.num_children = ast->nodes.size() - child_offset;
     }
 
+    void consume_variable_properties(Ast* ast)
+    {
+        while (true)
+        {
+            lexer::Token next_token = lexer::peek_next_token(ast->lexer_info);
+            if (next_token.type != lexer::TokenType::Punctuation || next_token.punc != '.')
+            {
+                break;
+            }
+            consume_punctuation(ast->lexer_info, '.');
+
+            AstNode& property_node = ast->nodes.emplace_back();
+            property_node.node_type = AstNodeType::Property;
+            property_node.name = consume_name(ast->lexer_info);
+        }
+    }
+
     void consume_variable_or_function_call(Ast* ast)
     {
         std::string_view name = consume_name(ast->lexer_info);
@@ -392,6 +410,10 @@ namespace tungsten::parser
         AstNode& variable_node = ast->nodes.emplace_back();
         variable_node.node_type = AstNodeType::Variable;
         variable_node.name = name;
+
+        uint32_t current_offset = ast->nodes.size();
+        consume_variable_properties(ast);
+        variable_node.num_children = ast->nodes.size() - current_offset;
     }
 
     void consume_variable_declaration(Ast* ast, std::string_view type)
@@ -421,6 +443,7 @@ namespace tungsten::parser
         assignment_node.name = name;
 
         uint32_t child_offset = ast->nodes.size();
+        consume_variable_properties(ast);
 
         lexer::Token token = lexer::get_next_token(ast->lexer_info);
         if (token.type != lexer::TokenType::Operator)
@@ -788,6 +811,9 @@ namespace tungsten::parser
                 break;
             case AstNodeType::Variable:
                 std::cout << "variable " << node->name;
+                break;
+            case AstNodeType::Property:
+                std::cout << "property " << node->name;
                 break;
             case AstNodeType::FunctionCall:
                 std::cout << "function_call " << node->name;
