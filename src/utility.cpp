@@ -27,4 +27,18 @@ namespace tungsten::utility
 
         return buffer;
     }
+
+    bool write_file(std::string_view filepath, std::string_view data)
+    {
+        std::ofstream file((std::string)filepath);
+        file << data;
+        file.close();
+
+        bool success = (bool)file;
+        if (!success)
+        {
+            std::cerr << "Failed to write to file '" << filepath << "'\n";
+        }
+        return success;
+    }
 }

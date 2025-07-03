@@ -5,5 +5,7 @@
 
 namespace tungsten::utility
 {
-    std::string read_file(std::string_view filepath);
+    [[nodiscard]] std::string read_file(std::string_view filepath);
+
+    bool write_file(std::string_view filepath, std::string_view data);
 }
