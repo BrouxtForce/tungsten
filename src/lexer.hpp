@@ -30,7 +30,9 @@ namespace tungsten::lexer
         While,
         Continue,
         Break,
-        Return
+        Return,
+
+        Const
     };
 
     struct Token

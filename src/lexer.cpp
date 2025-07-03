@@ -171,6 +171,8 @@ namespace tungsten::lexer
         if (name == "break")    keyword = Keyword::Break;
         if (name == "return")   keyword = Keyword::Return;
 
+        if (name == "const") keyword = Keyword::Const;
+
         if (keyword == Keyword::None)
         {
             out.str = name;

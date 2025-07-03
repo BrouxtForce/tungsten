@@ -493,14 +493,27 @@ namespace tungsten::converter
     {
         assert(node->node_type == AstNodeType::VariableDeclaration);
 
+        bool is_variable_const = false;
+        for (const Attribute& attribute : node->attributes)
+        {
+            if (attribute.name == "const")
+            {
+                is_variable_const = true;
+                break;
+            }
+        }
+
         stream << get_indent(indent);
         if (language_target == LanguageTargetMSL)
         {
+            // TODO: constexpr is not outputted due to many of MSL's stdlib functions not being constexpr.
+            //       Perhaps such expressions can be computed at compile time.
+            if (is_variable_const) stream << "const ";
             stream << convert_type(node->type) << ' ' << node->name;
         }
         if (language_target == LanguageTargetWGSL)
         {
-            stream << "var " << node->name << ": " << convert_type(node->type);
+            stream << (is_variable_const ? "const " : "var ") << node->name << ": " << convert_type(node->type);
         }
 
         if (node->num_children > 0)

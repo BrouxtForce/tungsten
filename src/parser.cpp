@@ -436,6 +436,18 @@ namespace tungsten::parser
         decl_node.num_children = ast->nodes.size() - child_offset;
     }
 
+    void consume_variable_declaration(Ast* ast)
+    {
+        size_t next_index = ast->nodes.size();
+        bool is_variable_const = try_consume_keyword(ast->lexer_info, lexer::Keyword::Const);
+        consume_variable_declaration(ast, consume_name(ast->lexer_info));
+        if (is_variable_const)
+        {
+            assert(next_index < ast->nodes.size());
+            ast->nodes[next_index].attributes.push_back({ .name = "const" });
+        }
+    }
+
     void consume_variable_assignment(Ast* ast, std::string_view name)
     {
         AstNode& assignment_node = ast->nodes.emplace_back();
@@ -604,6 +616,12 @@ namespace tungsten::parser
                         consume_expression(ast);
                         consume_punctuation(ast->lexer_info, ';');
                         return_node.num_children = ast->nodes.size() - child_offset;
+                        continue;
+                    }
+                    if (token.keyword == lexer::Keyword::Const)
+                    {
+                        consume_variable_declaration(ast);
+                        consume_punctuation(ast->lexer_info, ';');
                         continue;
                     }
                     goto unexpected_token;
