@@ -221,7 +221,16 @@ namespace tungsten::converter
             }
             if (language_target == LanguageTargetWGSL)
             {
-                if (needs_wgsl_location)
+                bool has_position_attribute = false;
+                for (const Attribute& attribute : child_node->attributes)
+                {
+                    if (attribute.name == "position")
+                    {
+                        has_position_attribute = true;
+                        break;
+                    }
+                }
+                if (needs_wgsl_location && !has_position_attribute)
                 {
                     stream << "@location(" << (location++) << ") ";
                 }
