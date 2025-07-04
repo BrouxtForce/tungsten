@@ -324,7 +324,7 @@ namespace tungsten::converter
             {
                 stream << '\n';
             }
-            stream << " struct " << node->name << " {\n";
+            stream << "struct " << node->name << " {\n";
             int attribute = 0;
             iterate_node_children(ast, node, [&attribute, &indent, &stream](const AstNode* child_node) {
                 assert(child_node->node_type == AstNodeType::VertexGroupMember);
