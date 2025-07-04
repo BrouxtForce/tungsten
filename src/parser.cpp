@@ -296,6 +296,23 @@ namespace tungsten::parser
 
     void consume_variable_or_function_call(Ast* ast);
 
+    void consume_variable_properties(Ast* ast)
+    {
+        while (true)
+        {
+            lexer::Token next_token = lexer::peek_next_token(ast->lexer_info);
+            if (next_token.type != lexer::TokenType::Punctuation || next_token.punc != '.')
+            {
+                break;
+            }
+            consume_punctuation(ast->lexer_info, '.');
+
+            AstNode& property_node = ast->nodes.emplace_back();
+            property_node.node_type = AstNodeType::Property;
+            property_node.name = consume_name(ast->lexer_info);
+        }
+    }
+
     void consume_expression(Ast* ast)
     {
         AstNode& expression_node = ast->nodes.emplace_back();
@@ -328,6 +345,7 @@ namespace tungsten::parser
                         consume_punctuation(ast->lexer_info, '(');
                         consume_expression(ast);
                         consume_punctuation(ast->lexer_info, ')');
+                        consume_variable_properties(ast);
                         should_consume_binary_operation = true;
                         continue;
                     }
@@ -347,23 +365,6 @@ namespace tungsten::parser
         }
 
         expression_node.num_children = ast->nodes.size() - child_offset;
-    }
-
-    void consume_variable_properties(Ast* ast)
-    {
-        while (true)
-        {
-            lexer::Token next_token = lexer::peek_next_token(ast->lexer_info);
-            if (next_token.type != lexer::TokenType::Punctuation || next_token.punc != '.')
-            {
-                break;
-            }
-            consume_punctuation(ast->lexer_info, '.');
-
-            AstNode& property_node = ast->nodes.emplace_back();
-            property_node.node_type = AstNodeType::Property;
-            property_node.name = consume_name(ast->lexer_info);
-        }
     }
 
     void consume_variable_or_function_call(Ast* ast)

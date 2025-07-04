@@ -461,7 +461,13 @@ namespace tungsten::converter
         }
 
         bool needs_spacing = false;
-        iterate_node_children(ast, node, [&ast, &stream, &needs_spacing](const AstNode* child_node) {
+        uint32_t property_node_index = 0;
+        iterate_node_children(ast, node, [&ast, &stream, &needs_spacing, &property_node_index](const AstNode* child_node) {
+            if (child_node->node_type == AstNodeType::Property)
+            {
+                property_node_index = child_node->index;
+                return false;
+            }
             if (needs_spacing)
             {
                 stream << ' ';
@@ -475,13 +481,11 @@ namespace tungsten::converter
                 case AstNodeType::Variable:
                     stream << child_node->name;
                     needs_spacing = true;
-                    for (size_t i = child_node->index + 1; i < ast->nodes.size(); i++)
+                    for (size_t offset = 0; offset < child_node->num_children; offset++)
                     {
-                        if (ast->nodes[i].node_type != AstNodeType::Property)
-                        {
-                            break;
-                        }
-                        stream << '.' << ast->nodes[i].name;
+                        const AstNode* property_node = &ast->nodes[child_node->index + offset + 1];
+                        assert(property_node->node_type == AstNodeType::Property);
+                        stream << '.' << property_node->name;
                     }
                     break;
                 case AstNodeType::FunctionCall:
@@ -506,6 +510,17 @@ namespace tungsten::converter
 
             return true;
         });
+
+        if (property_node_index != 0)
+        {
+            for (uint32_t i = property_node_index; i <= node->index + node->num_children; i++)
+            {
+                const AstNode* property_node = &ast->nodes[i];
+                assert(property_node->node_type == AstNodeType::Property);
+
+                stream << '.' << property_node->name;
+            }
+        }
 
         if (!is_root_expression)
         {
