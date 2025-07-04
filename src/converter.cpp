@@ -182,13 +182,32 @@ namespace tungsten::converter
     {
         assert(node->node_type == AstNodeType::Struct);
 
+        bool needs_wgsl_location = false;
+        if (language_target == LanguageTargetWGSL)
+        {
+            // NOTE: Currently, only the [[position]] attribute is used to determine if a struct
+            //       is as the output of the vertex function / input of the fragment function.
+            iterate_node_children(ast, node, [&needs_wgsl_location](const AstNode* child_node) {
+                for (const Attribute& attribute : child_node->attributes)
+                {
+                    if (attribute.name == "position")
+                    {
+                        needs_wgsl_location = true;
+                        return false;
+                    }
+                }
+                return true;
+            });
+        }
+
         stream << get_indent(indent);
         if (output_attributes(node->attributes, stream))
         {
             stream << '\n';
         }
         stream << "struct " << node->name << " {\n";
-        iterate_node_children(ast, node, [&indent, &stream](const AstNode* child_node) {
+        int location = 0;
+        iterate_node_children(ast, node, [&needs_wgsl_location, &location, &indent, &stream](const AstNode* child_node) {
             assert(child_node->node_type == AstNodeType::StructMember);
 
             stream << get_indent(indent + 1);
@@ -202,6 +221,10 @@ namespace tungsten::converter
             }
             if (language_target == LanguageTargetWGSL)
             {
+                if (needs_wgsl_location)
+                {
+                    stream << "@location(" << (location++) << ") ";
+                }
                 stream << child_node->name << ": " << convert_type(child_node->type) << ",\n";
             }
             return true;
