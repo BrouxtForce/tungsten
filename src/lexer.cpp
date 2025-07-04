@@ -253,6 +253,16 @@ namespace tungsten::lexer
                 processed_sign = true;
                 continue;
             }
+            if (processed_decimal_point && (c == 'f' || c == 'h'))
+            {
+                info->stream.read();
+                break;
+            }
+            if (!processed_decimal_point && c == 'u')
+            {
+                info->stream.read();
+                break;
+            }
 
             // TODO: Check for valid characters immediately following the number
             break;

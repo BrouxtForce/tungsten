@@ -415,7 +415,8 @@ namespace tungsten::converter
     {
         assert(node->node_type == AstNodeType::FunctionCall);
 
-        stream << node->name << '(';
+        // TODO: convert_function_call() that also converts stdlib functions
+        stream << convert_type(node->name) << '(';
         bool is_first_argument = true;
         iterate_node_children(ast, node, [&ast, &stream, &is_first_argument](const AstNode* child_node) {
             if (!is_first_argument)
