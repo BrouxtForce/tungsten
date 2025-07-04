@@ -1,9 +1,9 @@
 #pragma once
 
 #include <string_view>
-#include <array>
 #include <deque>
-#include <memory>
+#include <cstring>
+#include <vector>
 
 #include "lexer.hpp"
 
