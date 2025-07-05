@@ -424,7 +424,22 @@ namespace tungsten::converter
         }
         if (language_target == LanguageTargetWGSL)
         {
-            stream << ") -> " << convert_type(node->type) << " {\n";
+            bool is_fragment_shader = false;
+            for (const Attribute& attribute : node->attributes)
+            {
+                if (attribute.name == "fragment")
+                {
+                    is_fragment_shader = true;
+                    break;
+                }
+            }
+
+            stream << ") -> ";
+            if (is_fragment_shader)
+            {
+                stream << "@location(0) ";
+            }
+            stream << convert_type(node->type) << " {\n";
         }
 
         iterate_node_children(ast, node, [&ast, &indent, &stream](const AstNode* child_node) {
