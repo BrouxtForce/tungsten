@@ -1,7 +1,7 @@
-#include "parser.hpp"
-#include "builtins.hpp"
-#include "error.hpp"
-#include "lexer.hpp"
+#include "tungsten/parser.hpp"
+#include "tungsten/builtins.hpp"
+#include "tungsten/error.hpp"
+#include "tungsten/lexer.hpp"
 
 #include <array>
 #include <iostream>

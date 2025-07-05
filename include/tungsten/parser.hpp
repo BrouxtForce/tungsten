@@ -5,7 +5,7 @@
 #include <cstring>
 #include <vector>
 
-#include "lexer.hpp"
+#include "tungsten/lexer.hpp"
 
 namespace tungsten::parser
 {

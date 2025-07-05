@@ -1,5 +1,5 @@
-#include "lexer.hpp"
-#include "error.hpp"
+#include "tungsten/lexer.hpp"
+#include "tungsten/error.hpp"
 
 #include <string>
 #include <cassert>

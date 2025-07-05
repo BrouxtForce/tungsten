@@ -1,7 +1,7 @@
 #pragma once
 
 #include <ostream>
-#include "parser.hpp"
+#include "tungsten/parser.hpp"
 
 namespace tungsten::converter
 {

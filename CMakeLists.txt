@@ -24,4 +24,4 @@ else()
     )
 endif()
 
-target_include_directories(tungsten PRIVATE src)
+target_include_directories(tungsten PRIVATE include)
