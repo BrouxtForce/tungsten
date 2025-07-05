@@ -885,4 +885,16 @@ namespace tungsten::parser
             }
         }
     }
+
+    bool has_attribute(const AstNode* node, std::string_view attribute_name)
+    {
+        for (const Attribute& attribute : node->attributes)
+        {
+            if (attribute.name == attribute_name)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
 }

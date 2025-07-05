@@ -188,13 +188,10 @@ namespace tungsten::converter
             // NOTE: Currently, only the [[position]] attribute is used to determine if a struct
             //       is as the output of the vertex function / input of the fragment function.
             iterate_node_children(ast, node, [&needs_wgsl_location](const AstNode* child_node) {
-                for (const Attribute& attribute : child_node->attributes)
+                if (has_attribute(child_node, "position"))
                 {
-                    if (attribute.name == "position")
-                    {
-                        needs_wgsl_location = true;
-                        return false;
-                    }
+                    needs_wgsl_location = true;
+                    return false;
                 }
                 return true;
             });
@@ -221,15 +218,7 @@ namespace tungsten::converter
             }
             if (language_target == LanguageTargetWGSL)
             {
-                bool has_position_attribute = false;
-                for (const Attribute& attribute : child_node->attributes)
-                {
-                    if (attribute.name == "position")
-                    {
-                        has_position_attribute = true;
-                        break;
-                    }
-                }
+                bool has_position_attribute = has_attribute(child_node, "position");
                 if (needs_wgsl_location && !has_position_attribute)
                 {
                     stream << "@location(" << (location++) << ") ";
@@ -424,16 +413,7 @@ namespace tungsten::converter
         }
         if (language_target == LanguageTargetWGSL)
         {
-            bool is_fragment_shader = false;
-            for (const Attribute& attribute : node->attributes)
-            {
-                if (attribute.name == "fragment")
-                {
-                    is_fragment_shader = true;
-                    break;
-                }
-            }
-
+            bool is_fragment_shader = has_attribute(node, "fragment");
             stream << ") -> ";
             if (is_fragment_shader)
             {
@@ -556,15 +536,7 @@ namespace tungsten::converter
     {
         assert(node->node_type == AstNodeType::VariableDeclaration);
 
-        bool is_variable_const = false;
-        for (const Attribute& attribute : node->attributes)
-        {
-            if (attribute.name == "const")
-            {
-                is_variable_const = true;
-                break;
-            }
-        }
+        bool is_variable_const = has_attribute(node, "const");
 
         stream << get_indent(indent);
         if (language_target == LanguageTargetMSL)

@@ -91,4 +91,6 @@ namespace tungsten::parser
     Ast* generate_ast(std::string_view code);
     void free_ast(Ast* ast);
     void print_ast(const Ast* ast);
+
+    bool has_attribute(const AstNode* node, std::string_view attribute_name);
 }
