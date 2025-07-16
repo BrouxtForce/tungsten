@@ -360,6 +360,18 @@ namespace tungsten::converter
     {
         assert(node->node_type == AstNodeType::Function);
 
+        if (reflection_info)
+        {
+            if (has_attribute(node, "vertex"))
+            {
+                *reflection_info << "vertex_function " << node->name << '\n';
+            }
+            if (has_attribute(node, "fragment"))
+            {
+                *reflection_info << "fragment_function " << node->name << '\n';
+            }
+        }
+
         stream << get_indent(indent);
         if (output_attributes(node->attributes, stream))
         {
