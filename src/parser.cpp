@@ -8,6 +8,7 @@
 #include <optional>
 #include <cassert>
 #include <stack>
+#include <charconv>
 
 namespace tungsten::parser
 {
@@ -52,16 +53,24 @@ namespace tungsten::parser
         }
     }
 
-    void consume_punctuation(lexer::LexerInfo* info, char punc)
+    bool try_consume_punctuation(lexer::LexerInfo* info, char punc)
     {
         lexer::Token token = lexer::peek_next_token(info);
         if (token.type == lexer::TokenType::Punctuation && token.punc == punc)
         {
             lexer::get_next_token(info);
-            return;
+            return true;
         }
+        return false;
+    }
 
-        error::report("Unexpected token", token.byte_offset, token.byte_length);
+    void consume_punctuation(lexer::LexerInfo* info, char punc)
+    {
+        if (!try_consume_punctuation(info, punc))
+        {
+            lexer::Token token = lexer::peek_next_token(info);
+            error::report("Unexpected token", token.byte_offset, token.byte_length);
+        }
     }
 
     bool try_consume_operator(lexer::LexerInfo* info, std::string_view op)
@@ -349,7 +358,24 @@ namespace tungsten::parser
                         should_consume_binary_operation = true;
                         continue;
                     }
-                    if (token.punc == ';' || token.punc == ')' || token.punc == ',')
+                    if (token.punc == '[')
+                    {
+                        AstNode& array_index_node = ast->nodes.emplace_back();
+                        array_index_node.node_type = AstNodeType::ArrayIndex;
+                        size_t child_start_index = ast->nodes.size();
+
+                        consume_punctuation(ast->lexer_info, '[');
+                        consume_expression(ast);
+                        consume_punctuation(ast->lexer_info, ']');
+
+                        array_index_node.num_children = ast->nodes.size() - child_start_index;
+
+                        consume_variable_properties(ast);
+
+                        should_consume_binary_operation = true;
+                        continue;
+                    }
+                    if (token.punc == ';' || token.punc == ')' || token.punc == ',' || token.punc == '}' || token.punc == ']')
                     {
                         break;
                     }
@@ -427,12 +453,45 @@ namespace tungsten::parser
         decl_node.type = type;
         decl_node.name = consume_name(ast->lexer_info);
 
-        if (!try_consume_operator(ast->lexer_info, "="))
+        lexer::Token next_token = lexer::peek_next_token(ast->lexer_info);
+        if (next_token.type == lexer::TokenType::Punctuation && next_token.punc == '[')
+        {
+            lexer::get_next_token(ast->lexer_info);
+            std::string_view num_str = consume_number(ast->lexer_info);
+            decl_node.attributes.push_back({ .name = "array_size", .arguments = { num_str } });
+
+            int num = 0;
+            std::from_chars_result result = std::from_chars(num_str.begin(), num_str.end(), num);
+            if (result.ec != std::errc() || result.ptr != num_str.end())
+            {
+                error::report("Invalid number in array initializer", 0, 0);
+            }
+
+            consume_punctuation(ast->lexer_info, ']');
+            consume_punctuation(ast->lexer_info, '{');
+
+            Attribute array_size_attribute { .name = "array_size" };
+            for (int i = 0; i < num; i++)
+            {
+                consume_expression(ast);
+                if (!try_consume_punctuation(ast->lexer_info, ','))
+                {
+                    // TODO: Error if extraneous comma?
+                    break;
+                }
+            }
+
+            consume_punctuation(ast->lexer_info, '}');
+        }
+        else if (!try_consume_operator(ast->lexer_info, "="))
         {
             // Uninitialized variable
             return;
         }
-        consume_expression(ast);
+        else
+        {
+            consume_expression(ast);
+        }
 
         decl_node.num_children = ast->nodes.size() - child_offset;
     }
@@ -712,6 +771,14 @@ namespace tungsten::parser
             switch (token.type)
             {
                 case lexer::TokenType::Keyword:
+                    if (token.keyword == lexer::Keyword::Const)
+                    {
+                        consume_variable_declaration(ast);
+                        consume_punctuation(ast->lexer_info, ';');
+                        attributes.push_back({ .name = "top_level" });
+                        accepts_attributes = true;
+                        break;
+                    }
                     consume_struct(ast);
                     accepts_attributes = true;
                     break;
@@ -741,7 +808,9 @@ namespace tungsten::parser
             if (accepts_attributes)
             {
                 assert(next_node_index < ast->nodes.size());
-                std::swap(attributes, ast->nodes[next_node_index].attributes);
+                AstNode& next_node = ast->nodes[next_node_index];
+                next_node.attributes.insert(next_node.attributes.end(), attributes.begin(), attributes.end());
+                attributes.clear();
             }
         }
 
@@ -818,6 +887,9 @@ namespace tungsten::parser
                 break;
             case AstNodeType::Expression:
                 std::cout << "expression";
+                break;
+            case AstNodeType::ArrayIndex:
+                std::cout << "array_index";
                 break;
             case AstNodeType::NumericLiteral:
                 std::cout << "numeric_literal " << node->num_str;
@@ -896,5 +968,22 @@ namespace tungsten::parser
             }
         }
         return false;
+    }
+
+    std::string_view get_attribute(const AstNode* node, std::string_view attribute_name)
+    {
+        for (const Attribute& attribute : node->attributes)
+        {
+            if (attribute.name == attribute_name)
+            {
+                if (node->attributes.size() == 0)
+                {
+                    error::report("Expected argument for attribute '" + (std::string)attribute_name + "'", 0, 0);
+                    return {};
+                }
+                return attribute.arguments[0];
+            }
+        }
+        return {};
     }
 }

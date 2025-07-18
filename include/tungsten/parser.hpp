@@ -32,6 +32,7 @@ namespace tungsten::parser
         VariableDeclaration,
         VariableAssignment,
         Expression,
+        ArrayIndex,
         NumericLiteral,
         UnaryOperation,
         BinaryOperation,
@@ -93,4 +94,5 @@ namespace tungsten::parser
     void print_ast(const Ast* ast);
 
     bool has_attribute(const AstNode* node, std::string_view attribute_name);
+    std::string_view get_attribute(const AstNode* node, std::string_view attribute_name);
 }

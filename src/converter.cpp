@@ -103,6 +103,10 @@ namespace tungsten::converter
             {
                 return "mat4x4" + std::string(1, wgsl_scalar_types[i][0]);
             }
+            if (count == "3x3")
+            {
+                return "mat3x3" + std::string(1, wgsl_scalar_types[i][0]);
+            }
             break;
         }
         return (std::string)type;
@@ -484,12 +488,18 @@ namespace tungsten::converter
                 property_node_index = child_node->index;
                 return false;
             }
-            if (needs_spacing)
+            if (needs_spacing && child_node->node_type != AstNodeType::ArrayIndex)
             {
                 stream << ' ';
             }
             switch (child_node->node_type)
             {
+                case AstNodeType::ArrayIndex:
+                    stream << '[';
+                    assert(child_node->index + 1 < ast->nodes.size());
+                    output_expression(ast, &ast->nodes[child_node->index + 1], stream, true);
+                    stream << ']';
+                    break;
                 case AstNodeType::NumericLiteral:
                     stream << child_node->num_str;
                     needs_spacing = true;
@@ -549,27 +559,69 @@ namespace tungsten::converter
         assert(node->node_type == AstNodeType::VariableDeclaration);
 
         bool is_variable_const = has_attribute(node, "const");
+        bool is_top_level = has_attribute(node, "top_level");
+        bool is_array = has_attribute(node, "array_size");
+        std::string_view array_count = is_array ? get_attribute(node, "array_size") : "";
 
         stream << get_indent(indent);
         if (language_target == LanguageTargetMSL)
         {
+            if (is_top_level) stream << "constant ";
             // TODO: constexpr is not outputted due to many of MSL's stdlib functions not being constexpr.
             //       Perhaps such expressions can be computed at compile time.
             if (is_variable_const) stream << "const ";
             stream << convert_type(node->type) << ' ' << node->name;
+            if (is_array) stream << '[' << array_count << ']';
         }
         if (language_target == LanguageTargetWGSL)
         {
-            stream << (is_variable_const ? "const " : "var ") << node->name << ": " << convert_type(node->type);
+            stream << (is_variable_const ? "const " : "var ") << node->name;
+            if (!is_array)
+            {
+                stream << ": " << convert_type(node->type);
+            }
         }
 
         if (node->num_children > 0)
         {
-            stream << " = ";
+            if (is_array)
+            {
+                if (language_target == LanguageTargetWGSL)
+                {
+                    stream << " = array<" << convert_type(node->type) << ", " << array_count << ">(";
+                }
+                if (language_target == LanguageTargetMSL)
+                {
+                    stream << " {";
+                }
 
-            const AstNode* expression_node = get_nth_child(ast, node, 1);
-            assert(expression_node->node_type == AstNodeType::Expression);
-            output_expression(ast, expression_node, stream, true);
+                bool is_first_child = true;
+                iterate_node_children(ast, node, [&ast, &stream, &is_first_child, &indent](const AstNode* child_node) {
+                    assert(child_node->node_type == AstNodeType::Expression);
+                    if (!is_first_child) stream << ',';
+                    is_first_child = false;
+                    stream << '\n' << get_indent(indent + 1);
+                    output_expression(ast, child_node, stream, true);
+                    return true;
+                });
+
+                if (language_target == LanguageTargetWGSL)
+                {
+                    stream << "\n)";
+                }
+                if (language_target == LanguageTargetMSL)
+                {
+                    stream << "\n}";
+                }
+            }
+            else
+            {
+                stream << " = ";
+
+                const AstNode* expression_node = get_nth_child(ast, node, 1);
+                assert(expression_node->node_type == AstNodeType::Expression);
+                output_expression(ast, expression_node, stream, true);
+            }
         }
         else
         {
@@ -580,7 +632,11 @@ namespace tungsten::converter
             }
         }
 
-        if (output_semicolon) stream << ";\n";
+        if (output_semicolon)
+        {
+            stream << ";\n";
+            if (is_top_level) stream << '\n';
+        }
     }
 
     void output_variable_assignment(const Ast* ast, const AstNode* node, std::ostream& stream, int indent, bool output_semicolon = true)
