@@ -275,7 +275,7 @@ namespace tungsten::converter
                 stream << convert_type(child_node->type) << ' ' << child_node->name << ";\n";
                 return true;
             });
-            stream << "}* " << node->name << " [[buffer(" << (next_binding++) << ")]];\n\n";
+            stream << "}& constant " << node->name << " [[buffer(" << (next_binding++) << ")]];\n\n";
             return;
         }
         if (language_target == LanguageTargetWGSL)
@@ -364,15 +364,18 @@ namespace tungsten::converter
     {
         assert(node->node_type == AstNodeType::Function);
 
+        bool is_entry_point = false;
         if (reflection_info)
         {
             if (has_attribute(node, "vertex"))
             {
                 *reflection_info << "vertex_function " << node->name << '\n';
+                is_entry_point = true;
             }
             if (has_attribute(node, "fragment"))
             {
                 *reflection_info << "fragment_function " << node->name << '\n';
+                is_entry_point = true;
             }
         }
 
@@ -392,7 +395,7 @@ namespace tungsten::converter
         stream << node->name << '(';
 
         bool is_first_child = true;
-        iterate_node_children(ast, node, [&stream, &is_first_child](const AstNode* child_node) {
+        iterate_node_children(ast, node, [&stream, &is_first_child, &is_entry_point](const AstNode* child_node) {
             if (child_node->node_type == AstNodeType::FunctionArg)
             {
                 if (!is_first_child)
@@ -403,7 +406,7 @@ namespace tungsten::converter
                 {
                     stream << ' ';
                 }
-                else if (language_target == LanguageTargetMSL)
+                else if (language_target == LanguageTargetMSL && is_entry_point)
                 {
                     // TODO: Validation
                     stream << "[[stage_in]] ";
