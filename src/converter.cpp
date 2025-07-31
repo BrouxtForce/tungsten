@@ -150,13 +150,13 @@ namespace tungsten::converter
         return false;
     }
 
+    // TODO: Merge with WGSL attributes array
+    static constexpr std::array<std::string_view, 6> s_allowed_attributes {
+        "vertex", "fragment", "compute", "vertex_id", "instance_id", "position"
+    };
     bool output_msl_attribute(const Attribute& attribute, std::ostream& stream)
     {
-        std::array<std::string_view, 6> allowed_attributes {
-            "vertex", "fragment", "compute", "vertex_id", "instance_id", "position"
-        };
-
-        for (std::string_view allowed_attribute : allowed_attributes)
+        for (std::string_view allowed_attribute : s_allowed_attributes)
         {
             if (attribute.name == allowed_attribute)
             {
@@ -191,6 +191,34 @@ namespace tungsten::converter
             }
         }
         return did_output_attribute;
+    }
+
+    void output_space_and_user_attributes(const AstNode* node, std::ostream& stream)
+    {
+        bool has_outputted_space = false;
+        for (const Attribute& attribute : node->attributes)
+        {
+            bool is_user_attribute = true;
+            for (std::string_view allowed_attribute : s_allowed_attributes)
+            {
+                if (attribute.name == allowed_attribute)
+                {
+                    is_user_attribute = false;
+                    break;
+                }
+            }
+            if (!is_user_attribute)
+            {
+                continue;
+            }
+            if (!has_outputted_space)
+            {
+                stream << ' ';
+                has_outputted_space = true;
+            }
+            // TODO: Output attribute arguments
+            stream << attribute.name;
+        }
     }
 
     void output_struct(const Ast* ast, const AstNode* node, std::ostream& stream, int indent)
@@ -318,17 +346,16 @@ namespace tungsten::converter
         assert(!node->name.starts_with('_') && "Vertex group names must not start with an underscore");
 
         if (reflection_info != nullptr) {
-            *reflection_info << "vertex_group " << node->name << " { ";
+            *reflection_info << "vertex_group " << node->name;
+            output_space_and_user_attributes(node, *reflection_info);
+            *reflection_info << " { ";
             bool is_first_child = true;
             iterate_node_children(ast, node, [&is_first_child](const AstNode* child_node) {
                 assert(child_node->node_type == AstNodeType::VertexGroupMember);
                 if (!is_first_child) *reflection_info << ", ";
                 is_first_child = false;
                 *reflection_info << child_node->type << ' ' << child_node->name;
-                if (has_attribute(child_node, "per_instance"))
-                {
-                    *reflection_info << " per_instance";
-                }
+                output_space_and_user_attributes(child_node, *reflection_info);
                 return true;
             });
             *reflection_info << " }\n";
