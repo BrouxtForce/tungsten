@@ -150,36 +150,47 @@ namespace tungsten::converter
         return false;
     }
 
+    bool output_msl_attribute(const Attribute& attribute, std::ostream& stream)
+    {
+        std::array<std::string_view, 6> allowed_attributes {
+            "vertex", "fragment", "compute", "vertex_id", "instance_id", "position"
+        };
+
+        for (std::string_view allowed_attribute : allowed_attributes)
+        {
+            if (attribute.name == allowed_attribute)
+            {
+                stream << "[[" << attribute.name << "]]";
+                if (attribute.arguments.size() > 0)
+                {
+                    stream << '(' << attribute.arguments[0];
+                    for (size_t i = 1; i < attribute.arguments.size(); i++)
+                    {
+                        stream << ", " << attribute.arguments[i];
+                    }
+                    stream << ')';
+                }
+                return true;
+            }
+        }
+        return false;
+    }
+
     bool output_attributes(const std::vector<Attribute>& attributes, std::ostream& stream)
     {
-        if (language_target == LanguageTargetWGSL)
-        {
-            bool did_output_attribute = false;
-            for (const Attribute& attribute : attributes)
-            {
-                if (output_wgsl_attribute(attribute, stream))
-                {
-                    did_output_attribute = true;
-                }
-            }
-            return did_output_attribute;
-        }
-
+        bool did_output_attribute = false;
         for (const Attribute& attribute : attributes)
         {
-            stream << "[[" << attribute.name;
-            if (attribute.arguments.size() > 0)
+            if (language_target == LanguageTargetWGSL && output_wgsl_attribute(attribute, stream))
             {
-                stream << '(' << attribute.arguments[0];
-                for (size_t i = 1; i < attribute.arguments.size(); i++)
-                {
-                    stream << ", " << attribute.arguments[i];
-                }
-                stream << ')';
+                did_output_attribute = true;
             }
-            stream << "]]";
+            if (language_target == LanguageTargetMSL && output_msl_attribute(attribute, stream))
+            {
+                did_output_attribute = true;
+            }
         }
-        return attributes.size() > 0;
+        return did_output_attribute;
     }
 
     void output_struct(const Ast* ast, const AstNode* node, std::ostream& stream, int indent)
@@ -314,6 +325,10 @@ namespace tungsten::converter
                 if (!is_first_child) *reflection_info << ", ";
                 is_first_child = false;
                 *reflection_info << child_node->type << ' ' << child_node->name;
+                if (has_attribute(child_node, "per_instance"))
+                {
+                    *reflection_info << " per_instance";
+                }
                 return true;
             });
             *reflection_info << " }\n";
