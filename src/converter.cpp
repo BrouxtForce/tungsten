@@ -411,7 +411,21 @@ namespace tungsten::converter
         {
             if (has_attribute(node, "vertex"))
             {
-                *reflection_info << "vertex_function " << node->name << '\n';
+                *reflection_info << "vertex_function " << node->name;
+
+                iterate_node_children(ast, node, [&](const AstNode* child_node) {
+                    if (child_node->node_type != AstNodeType::FunctionArg)
+                    {
+                        return false;
+                    }
+                    if (child_node->attributes.size() == 0)
+                    {
+                        *reflection_info << ' ' << child_node->type;
+                    }
+                    return true;
+                });
+
+                *reflection_info << '\n';
                 is_entry_point = true;
             }
             if (has_attribute(node, "fragment"))
