@@ -126,6 +126,31 @@ namespace tungsten::converter
         return {};
     }
 
+    std::string convert_function_call(std::string_view function_name)
+    {
+        std::string converted_type = convert_type(function_name);
+        if (converted_type != function_name)
+        {
+            return converted_type;
+        }
+
+        if (language_target == LanguageTargetWGSL)
+        {
+            constexpr std::array<std::pair<std::string_view, std::string_view>, 4> function_conversions {
+                std::pair{ "unpack_unorm4x8_to_float", "unpack4x8unorm" },
+                std::pair{ "unpack_snorm4x8_to_float", "unpack4x8snorm" }
+            };
+            for (const auto& [from, to] : function_conversions)
+            {
+                if (function_name == from)
+                {
+                    return (std::string)to;
+                }
+            }
+        }
+        return (std::string)function_name;
+    }
+
     bool output_wgsl_attribute(const Attribute& attribute, std::ostream& stream)
     {
         // TODO: Have conversions to all WGSL supported attributes
@@ -517,8 +542,7 @@ namespace tungsten::converter
     {
         assert(node->node_type == AstNodeType::FunctionCall);
 
-        // TODO: convert_function_call() that also converts stdlib functions
-        stream << convert_type(node->name) << '(';
+        stream << convert_function_call(node->name) << '(';
         bool is_first_argument = true;
         iterate_node_children(ast, node, [&ast, &stream, &is_first_argument](const AstNode* child_node) {
             if (!is_first_argument)
