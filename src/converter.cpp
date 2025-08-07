@@ -835,6 +835,20 @@ namespace tungsten::converter
         stream << ";\n";
     }
 
+    void output_discard_statement(std::ostream& stream, int indent)
+    {
+        stream << get_indent(indent);
+        if (language_target == LanguageTargetWGSL)
+        {
+            stream << "discard";
+        }
+        if (language_target == LanguageTargetMSL)
+        {
+            stream << "discard_fragment()";
+        }
+        stream << ";\n";
+    }
+
     void output_node(const Ast* ast, const AstNode* node, std::ostream& stream, int indent)
     {
         switch (node->node_type)
@@ -874,6 +888,9 @@ namespace tungsten::converter
 
             case AstNodeType::ReturnStatement:
                 output_return_statement(ast, node, stream, indent);
+                break;
+            case AstNodeType::DiscardStatement:
+                output_discard_statement(stream, indent);
                 break;
 
             default:

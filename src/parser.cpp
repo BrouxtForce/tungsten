@@ -678,6 +678,14 @@ namespace tungsten::parser
                         return_node.num_children = ast->nodes.size() - child_offset;
                         continue;
                     }
+                    if (token.keyword == lexer::Keyword::Discard)
+                    {
+                        consume_keyword(ast->lexer_info, lexer::Keyword::Discard);
+                        consume_punctuation(ast->lexer_info, ';');
+                        AstNode& discard_node = ast->nodes.emplace_back();
+                        discard_node.node_type = AstNodeType::DiscardStatement;
+                        continue;
+                    }
                     if (token.keyword == lexer::Keyword::Const)
                     {
                         consume_variable_declaration(ast);

@@ -33,6 +33,7 @@ namespace tungsten::lexer
                     case Keyword::Continue: out += "continue"; break;
                     case Keyword::Break:    out += "break"; break;
                     case Keyword::Return:   out += "return"; break;
+                    case Keyword::Discard:  out += "discard"; break;
 
                     default: out += "invalid keyword " + std::to_string((int)keyword);
                 }
@@ -170,6 +171,7 @@ namespace tungsten::lexer
         if (name == "continue") keyword = Keyword::Continue;
         if (name == "break")    keyword = Keyword::Break;
         if (name == "return")   keyword = Keyword::Return;
+        if (name == "discard")  keyword = Keyword::Discard;
 
         if (name == "const") keyword = Keyword::Const;
 

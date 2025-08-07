@@ -47,7 +47,8 @@ namespace tungsten::parser
         ForLoop,
         WhileLoop,
 
-        ReturnStatement
+        ReturnStatement,
+        DiscardStatement
     };
 
     struct Attribute

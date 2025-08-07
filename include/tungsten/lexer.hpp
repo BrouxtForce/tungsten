@@ -31,6 +31,7 @@ namespace tungsten::lexer
         Continue,
         Break,
         Return,
+        Discard,
 
         Const
     };
