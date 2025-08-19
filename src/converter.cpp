@@ -429,7 +429,7 @@ namespace tungsten::converter
 
     void output_function(const Ast* ast, const AstNode* node, std::ostream& stream, int indent)
     {
-        assert(node->node_type == AstNodeType::Function);
+        assert(node->node_type == AstNodeType::FunctionDeclaration);
 
         bool is_entry_point = false;
         if (reflection_info)
@@ -566,7 +566,7 @@ namespace tungsten::converter
         bool needs_spacing = false;
         uint32_t property_node_index = 0;
         iterate_node_children(ast, node, [&ast, &stream, &needs_spacing, &property_node_index](const AstNode* child_node) {
-            if (child_node->node_type == AstNodeType::Property)
+            if (child_node->node_type == AstNodeType::PropertyAccess)
             {
                 property_node_index = child_node->index;
                 return false;
@@ -593,7 +593,7 @@ namespace tungsten::converter
                     for (size_t offset = 0; offset < child_node->num_children; offset++)
                     {
                         const AstNode* property_node = &ast->nodes[child_node->index + offset + 1];
-                        assert(property_node->node_type == AstNodeType::Property);
+                        assert(property_node->node_type == AstNodeType::PropertyAccess);
                         stream << '.' << property_node->name;
                     }
                     break;
@@ -625,7 +625,7 @@ namespace tungsten::converter
             for (uint32_t i = property_node_index; i <= node->index + node->num_children; i++)
             {
                 const AstNode* property_node = &ast->nodes[i];
-                assert(property_node->node_type == AstNodeType::Property);
+                assert(property_node->node_type == AstNodeType::PropertyAccess);
 
                 stream << '.' << property_node->name;
             }
@@ -731,7 +731,7 @@ namespace tungsten::converter
         stream << node->name;
         for (size_t i = node->index + 1; i < ast->nodes.size(); i++)
         {
-            if (ast->nodes[i].node_type != AstNodeType::Property)
+            if (ast->nodes[i].node_type != AstNodeType::PropertyAccess)
             {
                 break;
             }
@@ -863,7 +863,7 @@ namespace tungsten::converter
                 output_vertex_group(ast, node, stream, indent);
                 break;
 
-            case AstNodeType::Function:
+            case AstNodeType::FunctionDeclaration:
                 output_function(ast, node, stream, indent);
                 break;
 

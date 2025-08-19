@@ -145,11 +145,11 @@ int main(int argc, char** argv)
         std::stringstream reflection_stream;
         if (should_print_msl)
         {
-            converter::convert(ast, std::cout, converter::LanguageTargetMSL, &reflection_stream);
+            // converter::convert(ast, std::cout, converter::LanguageTargetMSL, &reflection_stream);
         }
         else if (should_print_wgsl)
         {
-            converter::convert(ast, std::cout, converter::LanguageTargetWGSL, &reflection_stream);
+            // converter::convert(ast, std::cout, converter::LanguageTargetWGSL, &reflection_stream);
         }
         else
         {
@@ -218,7 +218,7 @@ int main(int argc, char** argv)
         {
             // NOTE: reflection_stream may be filled twice if both MSL and WGSL are being outputted
             std::stringstream msl_stream;
-            converter::convert(ast, msl_stream, converter::LanguageTargetMSL, &reflection_stream);
+            // converter::convert(ast, msl_stream, converter::LanguageTargetMSL, &reflection_stream);
             fail = fail || !utility::write_file(msl_output_filepath, msl_stream.str());
         }
         if (!wgsl_output_filepath.empty())
@@ -226,7 +226,7 @@ int main(int argc, char** argv)
             reflection_stream.str("");
 
             std::stringstream wgsl_stream;
-            converter::convert(ast, wgsl_stream, converter::LanguageTargetWGSL, &reflection_stream);
+            // converter::convert(ast, wgsl_stream, converter::LanguageTargetWGSL, &reflection_stream);
             fail = fail || !utility::write_file(wgsl_output_filepath, wgsl_stream.str());
         }
         if (!reflection_output_filepath.empty())
