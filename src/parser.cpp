@@ -237,10 +237,10 @@ namespace tungsten::parser
     [[nodiscard]]
     uint32_t parse_binary_operation(Ast* ast, std::string_view operation, uint32_t left_operand, uint32_t right_operand)
     {
-        constexpr std::array<std::string_view, 14> legal_binary_operations {
+        constexpr std::array<std::string_view, 16> legal_binary_operations {
             "+", "-", "*", "/",
             "<", "<=", "==", ">=", ">",
-            "&&", "||", "&", "|", "^"
+            "&&", "||", "&", "|", "^", "<<", ">>"
         };
 
         bool is_legal_operation = false;
@@ -318,38 +318,74 @@ namespace tungsten::parser
     [[nodiscard]]
     uint32_t parse_variable_or_function_call(Ast* ast);
 
+    enum class Precedence : uint32_t
+    {
+        None,
+        LogicalOr,
+        LogicalAnd,
+        BitwiseOr,
+        BitwiseXor,
+        BitwiseAnd,
+        Relational,
+        BitwiseShift,
+        Sum,
+        Product,
+        Unary
+    };
+
+    Precedence get_operator_precedence(std::string_view op, bool is_unary_operator)
+    {
+        if (is_unary_operator) return Precedence::Unary;
+
+        if (op == "||") return Precedence::LogicalOr;
+        if (op == "&&") return Precedence::LogicalAnd;
+        if (op == "|") return Precedence::BitwiseOr;
+        if (op == "^") return Precedence::BitwiseXor;
+        if (op == "&") return Precedence::BitwiseAnd;
+        if (op == "<" || op == "<=" || op == "==" || op == ">=" || op == ">") return Precedence::Relational;
+        if (op == "<<" || op == ">>") return Precedence::BitwiseShift;
+        if (op == "+" || op == "-") return Precedence::Sum;
+        if (op == "*" || op == "/" || op == "%") return Precedence::Product;
+
+        error::report("Invalid operation '" + std::string(op) + "'", 0, 0);
+
+        return Precedence::None;
+    }
+
     [[nodiscard]]
-    uint32_t parse_expression(Ast* ast)
+    uint32_t parse_expression(Ast* ast, Precedence precedence = Precedence::None)
     {
         uint32_t left_operand = 0;
 
-        bool should_consume_binary_operation = false;
         while (true)
         {
+            bool should_consume_binary_operation = (left_operand != 0);
+
             lexer::Token token = lexer::peek_next_token(ast->lexer_info);
             switch (token.type)
             {
                 case lexer::TokenType::Number:
                     error::check(!should_consume_binary_operation, "Expected operator", token.byte_offset, token.byte_length);
                     left_operand = parse_numeric_literal(ast);
-                    should_consume_binary_operation = true;
                     continue;
                 case lexer::TokenType::Name:
                     error::check(!should_consume_binary_operation, "Expected operator", token.byte_offset, token.byte_length);
                     left_operand = parse_variable_or_function_call(ast);
-                    should_consume_binary_operation = true;
                     continue;
-                case lexer::TokenType::Operator:
+                case lexer::TokenType::Operator: {
+                    Precedence operator_precedence = get_operator_precedence(token.str, !should_consume_binary_operation);
+                    if (operator_precedence <= precedence)
+                    {
+                        return left_operand;
+                    }
                     lexer::get_next_token(ast->lexer_info);
-                    if (should_consume_binary_operation)
-                    {
-                        left_operand = parse_binary_operation(ast, token.str, left_operand, parse_expression(ast));
-                    }
-                    else
-                    {
-                        left_operand = parse_unary_operation(ast, token.str, parse_expression(ast));
-                    }
+
+                    left_operand = should_consume_binary_operation ?
+                        parse_binary_operation(ast, token.str, left_operand, parse_expression(ast, operator_precedence)) :
+                        parse_unary_operation(ast, token.str, parse_expression(ast, operator_precedence));
+
                     continue;
+                }
                 case lexer::TokenType::Punctuation: {
                     if (token.punc == '(')
                     {
@@ -358,7 +394,6 @@ namespace tungsten::parser
                         ast->nodes[left_operand].num_parenthesis++;
                         consume_punctuation(ast->lexer_info, ')');
                         left_operand = parse_variable_properties(ast, left_operand);
-                        should_consume_binary_operation = true;
                         continue;
                     }
                     if (token.punc == '[')
@@ -373,7 +408,6 @@ namespace tungsten::parser
                         consume_punctuation(ast->lexer_info, ']');
                         left_operand = parse_variable_properties(ast, array_index_node_index);
 
-                        should_consume_binary_operation = true;
                         continue;
                     }
                     if (token.punc == ';' || token.punc == ')' || token.punc == ',' || token.punc == '}' || token.punc == ']')
@@ -550,8 +584,8 @@ namespace tungsten::parser
             return assignment_node_index;
         }
 
-        std::array<std::string_view, 9> valid_assignment_operators {
-            "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "="
+        std::array<std::string_view, 11> valid_assignment_operators {
+            "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<=", ">>=", "="
         };
         for (std::string_view op : valid_assignment_operators)
         {
