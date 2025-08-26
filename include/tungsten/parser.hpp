@@ -79,6 +79,7 @@ namespace tungsten::parser
     {
         std::string_view name;
         IndexedSpan<uint32_t> member_nodes;
+        uint32_t binding;
     };
 
     struct AstNodeStructMember

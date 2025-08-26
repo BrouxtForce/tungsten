@@ -7,7 +7,7 @@ project(Tungsten)
 
 if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     add_executable(tungsten
-        # src/converter.cpp
+        src/converter.cpp
         src/error.cpp
         src/lexer.cpp
         src/main.cpp

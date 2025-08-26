@@ -121,19 +121,6 @@ int main(int argc, char** argv)
         return EXIT_FAILURE;
     }
 
-    if (should_print_ast) {
-        using namespace tungsten;
-
-        std::string code = utility::read_file(input_filepath);
-        error::init_error_info(input_filepath, code);
-
-        parser::Ast* ast = parser::generate_ast(code);
-        parser::print_ast(ast);
-
-        parser::free_ast(ast);
-        return EXIT_SUCCESS;
-    }
-
     if (output_filepaths.empty())
     {
         using namespace tungsten;
@@ -142,23 +129,26 @@ int main(int argc, char** argv)
         error::init_error_info(input_filepath, code);
         parser::Ast* ast = parser::generate_ast(code);
 
-        std::stringstream reflection_stream;
-        if (should_print_msl)
+        if (should_print_ast)
         {
-            // converter::convert(ast, std::cout, converter::LanguageTargetMSL, &reflection_stream);
+            parser::print_ast(ast);
+        }
+        else if (should_print_msl)
+        {
+            converter::to_msl(ast, std::cout);
         }
         else if (should_print_wgsl)
         {
-            // converter::convert(ast, std::cout, converter::LanguageTargetWGSL, &reflection_stream);
+            converter::to_wgsl(ast, std::cout);
+        }
+        else if (should_print_reflection)
+        {
+            converter::to_reflection(ast, std::cout);
         }
         else
         {
-            std::cerr << "If no output files are provided, --msl or --wgsl must be provided.\n";
+            std::cerr << "If no output files are provided, --print-ast, --msl, --wgsl, or --reflection must be provided.\n";
             return EXIT_FAILURE;
-        }
-        if (should_print_reflection)
-        {
-            std::cout << "/* reflection info:\n" << reflection_stream.str() << "*/\n";
         }
 
         parser::free_ast(ast);
@@ -212,25 +202,23 @@ int main(int argc, char** argv)
 
         parser::Ast* ast = parser::generate_ast(code);
 
-        std::stringstream reflection_stream;
         bool fail = false;
         if (!msl_output_filepath.empty())
         {
-            // NOTE: reflection_stream may be filled twice if both MSL and WGSL are being outputted
             std::stringstream msl_stream;
-            // converter::convert(ast, msl_stream, converter::LanguageTargetMSL, &reflection_stream);
+            converter::to_msl(ast, msl_stream);
             fail = fail || !utility::write_file(msl_output_filepath, msl_stream.str());
         }
         if (!wgsl_output_filepath.empty())
         {
-            reflection_stream.str("");
-
             std::stringstream wgsl_stream;
-            // converter::convert(ast, wgsl_stream, converter::LanguageTargetWGSL, &reflection_stream);
+            converter::to_wgsl(ast, wgsl_stream);
             fail = fail || !utility::write_file(wgsl_output_filepath, wgsl_stream.str());
         }
         if (!reflection_output_filepath.empty())
         {
+            std::stringstream reflection_stream;
+            converter::to_reflection(ast, reflection_stream);
             fail = fail || !utility::write_file(reflection_output_filepath, reflection_stream.str());
         }
 

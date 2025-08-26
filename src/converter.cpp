@@ -1,21 +1,13 @@
 #include "tungsten/converter.hpp"
 #include "tungsten/parser.hpp"
 
-#include <cstring>
-#include <iostream>
-#include <functional>
 #include <cassert>
-#include <algorithm>
 
 namespace tungsten::converter
 {
-    using namespace parser;
+    using parser::Ast, parser::AstNode, parser::AstNodeType, parser::Attribute, parser::has_attribute;
 
-    static uint32_t language_target = 0;
-    static uint32_t next_binding = 0;
-    static std::ostream* reflection_info = nullptr;
-
-    void output_node(const Ast* ast, const AstNode* node, std::ostream& stream, int indent);
+    enum Backend { MSL, WGSL };
 
     std::string_view get_indent(int indent)
     {
@@ -32,894 +24,705 @@ namespace tungsten::converter
         return std::string_view(indent_string).substr(0, target_indent);
     }
 
-    void iterate_node_children(const Ast* ast, const AstNode* node, std::function<bool(const AstNode*)> callback, int num_to_skip = 0)
+    bool msl_is_builtin_attribute(const Attribute& attribute, AstNodeType node_type)
     {
-        for (uint32_t i = node->index + 1; i <= node->index + node->num_children; i++)
+        switch (node_type)
         {
-            const AstNode* child_node = &ast->nodes[i];
-            if (num_to_skip > 0)
-            {
-                --num_to_skip;
-            }
-            else if (!callback(child_node))
-            {
-                return;
-            }
-            i += child_node->num_children;
-        }
-    }
-
-    const AstNode* get_nth_child(const Ast* ast, const AstNode* node, int n)
-    {
-        int num_iterations = 0;
-        for (uint32_t i = node->index + 1; i <= node->index + node->num_children; i++)
-        {
-            const AstNode* child_node = &ast->nodes[i];
-            i += child_node->num_children;
-
-            num_iterations++;
-            if (num_iterations == n)
-            {
-                return child_node;
-            }
-        }
-        return nullptr;
-    }
-
-    std::string convert_type_wgsl(std::string_view type)
-    {
-        // TODO: Support all WGSL types
-        std::array<std::string_view, 5> scalar_types { "bool", "half", "float", "uint", "int" };
-        std::array<std::string_view, 5> wgsl_scalar_types { "bool", "f16", "f32", "u32", "i32" };
-        std::array<std::string_view, 5> scalar_type_suffixes { "b", "h", "f", "u", "i" };
-        for (size_t i = 0; i < scalar_types.size(); i++)
-        {
-            if (!type.starts_with(scalar_types[i]))
-            {
-                continue;
-            }
-
-            std::string_view count = type.substr(scalar_types[i].size());
-            if (count.empty())
-            {
-                return (std::string)wgsl_scalar_types[i];
-            }
-
-            if (i == 0)
-            {
-                // Boolean vector types do not seem to have predeclared aliases
-                if (count == "2") return "vec2<bool>";
-                if (count == "3") return "vec3<bool>";
-                if (count == "4") return "vec4<bool>";
-                break;
-            }
-
-            if (count == "2") return "vec2" + (std::string)scalar_type_suffixes[i];
-            if (count == "3") return "vec3" + (std::string)scalar_type_suffixes[i];
-            if (count == "4") return "vec4" + (std::string)scalar_type_suffixes[i];
-
-            // TODO: Exclude int and uint from matrix types
-            if (count == "4x4")
-            {
-                return "mat4x4" + std::string(1, wgsl_scalar_types[i][0]);
-            }
-            if (count == "3x3")
-            {
-                return "mat3x3" + std::string(1, wgsl_scalar_types[i][0]);
-            }
-            break;
-        }
-        return (std::string)type;
-    }
-
-    std::string convert_type(std::string_view type)
-    {
-        if (language_target == LanguageTargetMSL)
-        {
-            return (std::string)type;
-        }
-        if (language_target == LanguageTargetWGSL)
-        {
-            return convert_type_wgsl(type);
-        }
-        assert(false);
-        return {};
-    }
-
-    std::string convert_function_call(std::string_view function_name)
-    {
-        std::string converted_type = convert_type(function_name);
-        if (converted_type != function_name)
-        {
-            return converted_type;
-        }
-
-        if (language_target == LanguageTargetWGSL)
-        {
-            constexpr std::array<std::pair<std::string_view, std::string_view>, 4> function_conversions {
-                std::pair{ "unpack_unorm4x8_to_float", "unpack4x8unorm" },
-                std::pair{ "unpack_snorm4x8_to_float", "unpack4x8snorm" }
-            };
-            for (const auto& [from, to] : function_conversions)
-            {
-                if (function_name == from)
-                {
-                    return (std::string)to;
-                }
-            }
-        }
-        return (std::string)function_name;
-    }
-
-    bool output_wgsl_attribute(const Attribute& attribute, std::ostream& stream)
-    {
-        // TODO: Have conversions to all WGSL supported attributes
-        std::array<std::pair<std::string_view, std::string_view>, 6> attribute_conversions {
-            std::pair{ "vertex", "@vertex" },
-            std::pair{ "fragment", "@fragment" },
-            std::pair{ "compute", "@compute" },
-
-            std::pair{ "vertex_id", "@builtin(vertex_index)" },
-            std::pair{ "instance_id", "@builtin(instance_index)" },
-            std::pair{ "position", "@builtin(position)" }
-        };
-
-        for (const auto& [from, to] : attribute_conversions)
-        {
-            if (attribute.name == from)
-            {
-                stream << to;
-                return true;
-            }
+            case AstNodeType::Struct:
+                return attribute.name == "position";
+            case AstNodeType::FunctionDeclaration:
+                return attribute.name == "vertex" || attribute.name == "fragment" || attribute.name == "compute";
+            case AstNodeType::FunctionArgument:
+                return attribute.name == "vertex_id" || attribute.name == "instance_id";
+            default: break;
         }
         return false;
     }
 
-    // TODO: Merge with WGSL attributes array
-    static constexpr std::array<std::string_view, 6> s_allowed_attributes {
-        "vertex", "fragment", "compute", "vertex_id", "instance_id", "position"
-    };
-    bool output_msl_attribute(const Attribute& attribute, std::ostream& stream)
-    {
-        for (std::string_view allowed_attribute : s_allowed_attributes)
-        {
-            if (attribute.name == allowed_attribute)
-            {
-                stream << "[[" << attribute.name << "]]";
-                if (attribute.arguments.size() > 0)
-                {
-                    stream << '(' << attribute.arguments[0];
-                    for (size_t i = 1; i < attribute.arguments.size(); i++)
-                    {
-                        stream << ", " << attribute.arguments[i];
-                    }
-                    stream << ')';
-                }
-                return true;
-            }
-        }
-        return false;
-    }
-
-    bool output_attributes(const std::vector<Attribute>& attributes, std::ostream& stream)
+    bool msl_output_attributes(const AstNode& node, std::ostream& stream)
     {
         bool did_output_attribute = false;
-        for (const Attribute& attribute : attributes)
+        for (const Attribute& attribute : node.attributes)
         {
-            if (language_target == LanguageTargetWGSL && output_wgsl_attribute(attribute, stream))
+            if (msl_is_builtin_attribute(attribute, node.node_type))
             {
-                did_output_attribute = true;
-            }
-            if (language_target == LanguageTargetMSL && output_msl_attribute(attribute, stream))
-            {
+                stream << "[[" << attribute.name << "]] ";
                 did_output_attribute = true;
             }
         }
         return did_output_attribute;
     }
 
-    void output_space_and_user_attributes(const AstNode* node, std::ostream& stream)
+    std::string wgsl_convert_builtin_attribute(const Attribute& attribute, AstNodeType node_type)
+    {
+        bool is_wgsl_builtin = false;
+        switch (node_type)
+        {
+            case AstNodeType::Struct:
+                is_wgsl_builtin = attribute.name == "position";
+                break;
+            case AstNodeType::FunctionDeclaration:
+                if (attribute.name == "vertex" || attribute.name == "fragment" || attribute.name == "compute")
+                {
+                    return std::string(attribute.name);
+                }
+                break;
+            case AstNodeType::FunctionArgument:
+                is_wgsl_builtin = attribute.name == "vertex_id" || attribute.name == "instance_id";
+                break;
+            default: break;
+        }
+        if (is_wgsl_builtin)
+        {
+            return "builtin(" + std::string(attribute.name) + ") ";
+        }
+        return {};
+    }
+
+    bool wgsl_output_attributes(const AstNode& node, std::ostream& stream)
+    {
+        bool did_output_attribute = false;
+        for (const Attribute& attribute : node.attributes)
+        {
+            std::string builtin_attribute = wgsl_convert_builtin_attribute(attribute, node.node_type);
+            if (!builtin_attribute.empty())
+            {
+                stream << '@' << builtin_attribute << ' ';
+                did_output_attribute = true;
+            }
+        }
+        return did_output_attribute;
+    }
+
+    void msl_output_struct(const Ast* ast, const AstNode& node, std::ostream& stream)
+    {
+        assert(node.node_type == AstNodeType::Struct);
+
+        stream << "struct " << node.struct_declaration.name << " {\n";
+        for (uint32_t child_node_index : node.struct_declaration.member_nodes)
+        {
+            const AstNode& child_node = ast->nodes[child_node_index];
+            msl_output_attributes(child_node, stream);
+            stream << get_indent(1) << child_node.struct_member.type_name << ' ' << child_node.struct_member.name << ";\n";
+        }
+        stream << "};\n";
+    }
+
+    void wgsl_output_struct(const Ast* ast, const AstNode& node, std::ostream& stream)
+    {
+        assert(node.node_type == AstNodeType::Struct);
+
+        stream << "struct " << node.struct_declaration.name << " {\n";
+        for (uint32_t child_node_index : node.struct_declaration.member_nodes)
+        {
+            const AstNode& child_node = ast->nodes[child_node_index];
+            wgsl_output_attributes(child_node, stream);
+            stream << get_indent(1) << child_node.struct_member.name << ": " << child_node.struct_member.type_name << ",\n";
+        }
+        stream << "};\n";
+    }
+
+    void msl_output_uniform_group(const Ast* ast, const AstNode& node, std::ostream& stream)
+    {
+        assert(node.node_type == AstNodeType::UniformGroup);
+
+        stream << "device struct {\n";
+        for (uint32_t member_node_index : node.struct_declaration.member_nodes)
+        {
+            const AstNode& member_node = ast->nodes[member_node_index];
+            stream << get_indent(1);
+            stream << member_node.struct_member.type_name << ' ' << member_node.struct_member.name << ";\n";
+        }
+        stream << "}& constant " << node.struct_declaration.name;
+        stream << " [[buffer(" << node.struct_declaration.binding << ")]];\n";
+    }
+
+    void wgsl_output_uniform_group(const Ast* ast, const AstNode& node, std::ostream& stream)
+    {
+        assert(node.node_type == AstNodeType::UniformGroup);
+
+        stream << "struct _" << node.struct_declaration.name << " {\n";
+        for (uint32_t child_node_index : node.struct_declaration.member_nodes)
+        {
+            const AstNode& child_node = ast->nodes[child_node_index];
+            wgsl_output_attributes(child_node, stream);
+            stream << get_indent(1) << child_node.struct_member.name << ": " << child_node.struct_member.type_name << ",\n";
+        }
+        stream << "};\n@group(" << node.struct_declaration.binding << ") @binding(0) var<uniform> ";
+        stream << node.struct_declaration.name << ": _" << node.struct_declaration.name << ";\n";
+    }
+
+    void msl_output_vertex_group(const Ast* ast, const AstNode& node, std::ostream& stream)
+    {
+        assert(node.node_type == AstNodeType::VertexGroup);
+
+        stream << "struct " << node.struct_declaration.name << " {\n";
+        int attribute = 0;
+        for (uint32_t member_node_index : node.struct_declaration.member_nodes)
+        {
+            const AstNode& member_node = ast->nodes[member_node_index];
+
+            stream << get_indent(1);
+            stream << member_node.struct_member.type_name << ' ' << member_node.struct_member.name;
+            stream << " [[attribute(" << attribute << ")]];\n";
+            attribute++;
+        }
+        stream << "};\n";
+    }
+
+    void wgsl_output_vertex_group(const Ast* ast, const AstNode& node, std::ostream& stream)
+    {
+        assert(node.node_type == AstNodeType::VertexGroup);
+
+        stream << "struct " << node.struct_declaration.name << " {\n";
+
+        uint32_t member_location = 0;
+        for (uint32_t child_node_index : node.struct_declaration.member_nodes)
+        {
+            const AstNode& child_node = ast->nodes[child_node_index];
+            wgsl_output_attributes(child_node, stream);
+            stream << get_indent(1) << "@location(" << member_location << ") ";
+            stream << child_node.struct_member.name << ": " << child_node.struct_member.type_name << ",\n";
+            member_location++;
+        }
+        stream << "};\n";
+    }
+
+    void output_expression(const Ast* ast, const AstNode& node, std::ostream& stream);
+
+    void output_property_access(const Ast* ast, const AstNode& node, std::ostream& stream)
+    {
+        if (node.node_type == AstNodeType::Variable)
+        {
+            stream << node.variable.name;
+            return;
+        }
+        if (node.node_type == AstNodeType::PropertyAccess)
+        {
+            output_property_access(ast, ast->nodes[node.property_access.left], stream);
+            stream << '.' << node.property_access.name;
+            return;
+        }
+        output_expression(ast, node, stream);
+    }
+
+    void output_expression(const Ast* ast, const AstNode& node, std::ostream& stream)
+    {
+        for (int i = 0; i < node.num_parenthesis; i++)
+        {
+            stream << '(';
+        }
+        switch (node.node_type)
+        {
+            case AstNodeType::ArrayIndex:
+                output_expression(ast, ast->nodes[node.array_index.left], stream);
+                stream << '[';
+                output_expression(ast, ast->nodes[node.array_index.right], stream);
+                stream << ']';
+                break;
+            case AstNodeType::NumericLiteral:
+                stream << node.numeric_literal.str;
+                break;
+            case AstNodeType::UnaryOperation:
+                stream << node.unary_operation.operation;
+                output_expression(ast, ast->nodes[node.unary_operation.operand], stream);
+                break;
+            case AstNodeType::BinaryOperation:
+                output_expression(ast, ast->nodes[node.binary_operation.left], stream);
+                stream << ' ' << node.binary_operation.operation << ' ';
+                output_expression(ast, ast->nodes[node.binary_operation.right], stream);
+                break;
+            case AstNodeType::Variable:
+            case AstNodeType::PropertyAccess:
+                output_property_access(ast, node, stream);
+                break;
+            case AstNodeType::FunctionCall: {
+                stream << node.function_call.name << '(';
+                bool is_first_argument = true;
+                for (uint32_t argument_node_index : node.function_call.argument_nodes)
+                {
+                    if (!is_first_argument) stream << ", ";
+                    is_first_argument = false;
+                    output_expression(ast, ast->nodes[argument_node_index], stream);
+                }
+                stream << ')';
+                break;
+            }
+            default: assert(false);
+        }
+        for (int i = 0; i < node.num_parenthesis; i++)
+        {
+            stream << ')';
+        }
+    }
+
+    void msl_output_variable_declaration(const Ast* ast, const AstNode& node, std::ostream& stream, int indent)
+    {
+        assert(node.node_type == AstNodeType::VariableDeclaration);
+
+        stream << get_indent(indent);
+
+        if (node.variable_declaration.is_top_level) stream << "constant ";
+        if (node.variable_declaration.is_const) stream << "const ";
+
+        stream << node.variable_declaration.type_name << ' ' << node.variable_declaration.name;
+
+        if (node.variable_declaration.is_array_declaration)
+        {
+            stream << '[' << node.variable_declaration.array_size_str << "] = {\n";
+
+            bool is_first_expression = true;
+            for (uint32_t expression_node_index : node.variable_declaration.array_expressions)
+            {
+                if (!is_first_expression) stream << ",\n";
+                is_first_expression = false;
+
+                stream << get_indent(indent + 1);
+                output_expression(ast, ast->nodes[expression_node_index], stream);
+            }
+
+            stream << '\n' << get_indent(indent) << '}';
+            return;
+        }
+
+        if (node.variable_declaration.expression != 0)
+        {
+            stream << " = ";
+            output_expression(ast, ast->nodes[node.variable_declaration.expression], stream);
+            return;
+        }
+        stream << "{}";
+    }
+
+    void wgsl_output_variable_declaration(const Ast* ast, const AstNode& node, std::ostream& stream, int indent)
+    {
+        assert(node.node_type == AstNodeType::VariableDeclaration);
+
+        stream << get_indent(indent);
+
+        if (node.variable_declaration.is_const)
+        {
+            stream << "const ";
+        }
+        else
+        {
+            stream << "var ";
+        }
+
+        if (node.variable_declaration.is_array_declaration)
+        {
+            stream << node.variable_declaration.name << ": array<" << node.variable_declaration.type_name;
+            stream << ", " << node.variable_declaration.array_size_str << ">(";
+
+            bool is_first_expression = true;
+            for (uint32_t expression_node_index : node.variable_declaration.array_expressions)
+            {
+                if (!is_first_expression) stream << ",\n";
+                is_first_expression = false;
+
+                stream << get_indent(indent + 1);
+                output_expression(ast, ast->nodes[expression_node_index], stream);
+            }
+
+            stream << '\n' << get_indent(indent) << ')';
+            return;
+        }
+
+        stream << node.variable_declaration.name << ": " << node.variable_declaration.type_name;
+
+        if (node.variable_declaration.expression != 0)
+        {
+            stream << " = ";
+            output_expression(ast, ast->nodes[node.variable_declaration.expression], stream);
+        }
+    }
+
+
+    void msl_output_variable_assignment(const Ast* ast, const AstNode& node, std::ostream& stream, int indent)
+    {
+        assert(node.node_type == AstNodeType::VariableAssignment);
+
+        stream << get_indent(indent);
+        output_property_access(ast, ast->nodes[node.variable_assignment.variable_node], stream);
+
+        if (node.variable_assignment.expression == 0)
+        {
+            // Increment/decrement operations
+            stream << node.variable_assignment.operation;
+            return;
+        }
+
+        stream << ' ' << node.variable_assignment.operation << ' ';
+        output_expression(ast, ast->nodes[node.variable_assignment.expression], stream);
+    }
+
+    void wgsl_output_variable_assignment(const Ast* ast, const AstNode& node, std::ostream& stream, int indent)
+    {
+        assert(node.node_type == AstNodeType::VariableAssignment);
+
+        stream << get_indent(indent);
+        output_property_access(ast, ast->nodes[node.variable_assignment.variable_node], stream);
+
+        if (node.variable_assignment.expression == 0)
+        {
+            // Increment/decrement operations
+            stream << node.variable_assignment.operation;
+            return;
+        }
+
+        stream << ' ' << node.variable_assignment.operation << ' ';
+        output_expression(ast, ast->nodes[node.variable_assignment.expression], stream);
+    }
+
+
+    void output_function_body(const Ast* ast, const AstNode& node, std::ostream& stream, int indent, Backend backend);
+
+    void output_if_statement(const Ast* ast, const AstNode& node, std::ostream& stream, int indent, Backend backend)
+    {
+        stream << get_indent(indent);
+        switch (node.node_type)
+        {
+            case AstNodeType::IfStatement:     stream << "if "; break;
+            case AstNodeType::ElseIfStatement: stream << "else if "; break;
+            case AstNodeType::ElseStatement:   stream << "else "; break;
+            default: assert(false);
+        }
+
+        if (node.node_type != AstNodeType::ElseStatement)
+        {
+            stream << '(';
+            output_expression(ast, ast->nodes[node.if_statement.expression], stream);
+            stream << ") ";
+        }
+
+        output_function_body(ast, ast->nodes[node.if_statement.body], stream, indent, backend);
+    }
+
+    void output_for_loop(const Ast* ast, const AstNode& node, std::ostream& stream, int indent, Backend backend)
+    {
+        assert(node.node_type == AstNodeType::ForLoop);
+
+        stream << get_indent(indent) << "for (";
+        backend == Backend::MSL ?
+            msl_output_variable_declaration(ast, ast->nodes[node.for_loop.init_expression], stream, 0) :
+            wgsl_output_variable_declaration(ast, ast->nodes[node.for_loop.init_expression], stream, 0);
+        stream << "; ";
+
+        output_expression(ast, ast->nodes[node.for_loop.comp_expression], stream);
+        stream << "; ";
+
+        backend == Backend::MSL ?
+            msl_output_variable_assignment(ast, ast->nodes[node.for_loop.loop_expression], stream, 0) :
+            wgsl_output_variable_assignment(ast, ast->nodes[node.for_loop.init_expression], stream, 0);
+        stream << ") ";
+
+        output_function_body(ast, ast->nodes[node.for_loop.body], stream, indent, backend);
+    }
+
+    void output_while_loop(const Ast* ast, const AstNode& node, std::ostream& stream, int indent, Backend backend)
+    {
+        assert(node.node_type == AstNodeType::WhileLoop);
+
+        stream << get_indent(indent) << "while (";
+        output_expression(ast, ast->nodes[node.while_loop.expression], stream);
+        stream << ") ";
+        output_function_body(ast, ast->nodes[node.while_loop.body], stream, indent, backend);
+    }
+
+    void output_return_statement(const Ast* ast, const AstNode& node, std::ostream& stream, int indent)
+    {
+        assert(node.node_type == AstNodeType::ReturnStatement);
+
+        stream << get_indent(indent) << "return ";
+        output_expression(ast, ast->nodes[node.return_statement.expression], stream);
+    }
+
+    void msl_output_keyword_statement(const AstNode& node, std::ostream& stream, int indent)
+    {
+        assert(node.node_type == AstNodeType::KeywordStatement);
+
+        stream << get_indent(indent);
+        if (node.statement.str == "discard")
+        {
+            stream << "discard_fragment()";
+            return;
+        }
+        stream << node.statement.str;
+    }
+
+    void wgsl_output_keyword_statement(const AstNode& node, std::ostream& stream, int indent)
+    {
+        assert(node.node_type == AstNodeType::KeywordStatement);
+        stream << get_indent(indent) << node.statement.str;
+    }
+
+    void output_function_body_statement(const Ast* ast, const AstNode& node, std::ostream& stream, int indent, Backend backend)
+    {
+        switch (node.node_type)
+        {
+            case AstNodeType::FunctionBody:
+                stream << get_indent(indent);
+                output_function_body(ast, node, stream, indent, backend);
+                break;
+            case AstNodeType::VariableDeclaration:
+                backend == Backend::MSL ?
+                    msl_output_variable_declaration(ast, node, stream, indent) :
+                    wgsl_output_variable_declaration(ast, node, stream, indent);
+                stream << ';';
+                break;
+            case AstNodeType::VariableAssignment:
+                backend == Backend::MSL ?
+                    msl_output_variable_assignment(ast, node, stream, indent) :
+                    wgsl_output_variable_assignment(ast, node, stream, indent);
+                stream << ';';
+                break;
+            case AstNodeType::IfStatement:
+            case AstNodeType::ElseIfStatement:
+            case AstNodeType::ElseStatement:
+                output_if_statement(ast, node, stream, indent, backend);
+                break;
+            case AstNodeType::ForLoop:
+                output_for_loop(ast, node, stream, indent, backend);
+                break;
+            case AstNodeType::WhileLoop:
+                output_while_loop(ast, node, stream, indent, backend);
+                break;
+            case AstNodeType::ReturnStatement:
+                output_return_statement(ast, node, stream, indent);
+                stream << ';';
+                break;
+            case AstNodeType::KeywordStatement:
+                backend == Backend::MSL ?
+                    msl_output_keyword_statement(node, stream, indent) :
+                    wgsl_output_keyword_statement(node, stream, indent);
+                stream << ';';
+                break;
+            default:
+                assert(false && "Invalid AstNodeType");
+        }
+        stream << '\n';
+    }
+
+    void output_function_body(const Ast* ast, const AstNode& node, std::ostream& stream, int indent, Backend backend)
+    {
+        assert(node.node_type == AstNodeType::FunctionBody);
+
+        stream << "{\n";
+        for (uint32_t statement_node_index : node.function_body.statements)
+        {
+            output_function_body_statement(ast, ast->nodes[statement_node_index], stream, indent + 1, backend);
+        }
+        stream << get_indent(indent) << '}';
+    }
+
+    void msl_output_function_declaration(const Ast* ast, const AstNode& node, std::ostream& stream)
+    {
+        assert(node.node_type == AstNodeType::FunctionDeclaration);
+        if (msl_output_attributes(node, stream))
+        {
+            stream << '\n';
+        }
+        stream << node.function_declaration.return_type << ' ' << node.function_declaration.name << "(";
+
+        bool is_first_argument = true;
+        for (uint32_t argument_node_index : node.function_declaration.argument_nodes)
+        {
+            if (!is_first_argument) stream << ", ";
+            is_first_argument = false;
+
+            const AstNode& argument_node = ast->nodes[argument_node_index];
+            msl_output_attributes(argument_node, stream);
+            if (argument_node.attributes.size == 0)
+            {
+                stream << "[[stage_in]] ";
+            }
+            stream << argument_node.function_argument.type_name << ' ' << argument_node.function_argument.name;
+        }
+
+        stream << ") ";
+        output_function_body(ast, ast->nodes[node.function_declaration.body], stream, 0, Backend::MSL);
+        stream << '\n';
+    }
+
+    void wgsl_output_function_declaration(const Ast* ast, const AstNode& node, std::ostream& stream)
+    {
+        assert(node.node_type == AstNodeType::FunctionDeclaration);
+        if (wgsl_output_attributes(node, stream))
+        {
+            stream << '\n';
+        }
+        stream << "fn " << node.function_declaration.name << '(';
+
+        bool is_first_argument = true;
+        for (uint32_t argument_node_index : node.function_declaration.argument_nodes)
+        {
+            if (!is_first_argument) stream << ", ";
+            is_first_argument = false;
+
+            const AstNode& argument_node = ast->nodes[argument_node_index];
+            wgsl_output_attributes(argument_node, stream);
+            stream << argument_node.function_argument.name << ": " << argument_node.function_argument.type_name;
+        }
+
+        stream << ") -> " << node.function_declaration.return_type << ' ';
+        output_function_body(ast, ast->nodes[node.function_declaration.body], stream, 0, Backend::WGSL);
+        stream << '\n';
+    }
+
+    void output_root_node(const Ast* ast, const AstNode& node, std::ostream& stream, Backend backend)
+    {
+        switch (node.node_type)
+        {
+            case AstNodeType::Struct:
+                backend == Backend::MSL ?
+                    msl_output_struct(ast, node, stream) :
+                    wgsl_output_struct(ast, node, stream);
+                break;
+            case AstNodeType::UniformGroup:
+                backend == Backend::MSL ?
+                    msl_output_uniform_group(ast, node, stream) :
+                    wgsl_output_uniform_group(ast, node, stream);
+                break;
+            case AstNodeType::VertexGroup:
+                backend == Backend::MSL ?
+                    msl_output_vertex_group(ast, node, stream) :
+                    wgsl_output_vertex_group(ast, node, stream);
+                break;
+            case AstNodeType::FunctionDeclaration:
+                backend == Backend::MSL ?
+                    msl_output_function_declaration(ast, node, stream) :
+                    wgsl_output_function_declaration(ast, node, stream);
+                break;
+            default:
+                assert(false && "Invalid AstNodeType");
+        }
+    }
+
+    void output_uniform_group_reflection(const Ast* ast, const AstNode& node, std::ostream& stream)
+    {
+        assert(node.node_type == AstNodeType::UniformGroup);
+
+        stream << "uniform_group " << node.struct_declaration.name << ' ';
+        stream << node.struct_declaration.binding << " { ";
+
+        bool is_first_child = true;
+        for (uint32_t member_node_index : node.struct_declaration.member_nodes)
+        {
+            const AstNode& member_node = ast->nodes[member_node_index];
+            assert(member_node.node_type == AstNodeType::UniformGroupMember);
+
+            if (!is_first_child) stream << ", ";
+            is_first_child = false;
+
+            stream << member_node.struct_member.type_name << ' ' << member_node.struct_member.name;
+        }
+        stream << " }\n";
+    }
+
+    void output_space_and_user_attributes(const AstNode& node, std::ostream& stream)
     {
         bool has_outputted_space = false;
-        for (const Attribute& attribute : node->attributes)
+        for (const Attribute& attribute : node.attributes)
         {
-            bool is_user_attribute = true;
-            for (std::string_view allowed_attribute : s_allowed_attributes)
-            {
-                if (attribute.name == allowed_attribute)
-                {
-                    is_user_attribute = false;
-                    break;
-                }
-            }
-            if (!is_user_attribute)
-            {
-                continue;
-            }
             if (!has_outputted_space)
             {
                 stream << ' ';
                 has_outputted_space = true;
             }
-            // TODO: Output attribute arguments
             stream << attribute.name;
         }
     }
 
-    void output_struct(const Ast* ast, const AstNode* node, std::ostream& stream, int indent)
+    void output_vertex_group_reflection(const Ast* ast, const AstNode& node, std::ostream& stream)
     {
-        assert(node->node_type == AstNodeType::Struct);
+        assert(node.node_type == AstNodeType::VertexGroup);
 
-        bool needs_wgsl_location = false;
-        if (language_target == LanguageTargetWGSL)
-        {
-            // NOTE: Currently, only the [[position]] attribute is used to determine if a struct
-            //       is as the output of the vertex function / input of the fragment function.
-            iterate_node_children(ast, node, [&needs_wgsl_location](const AstNode* child_node) {
-                if (has_attribute(child_node, "position"))
-                {
-                    needs_wgsl_location = true;
-                    return false;
-                }
-                return true;
-            });
-        }
-
-        stream << get_indent(indent);
-        if (output_attributes(node->attributes, stream))
-        {
-            stream << '\n';
-        }
-        stream << "struct " << node->name << " {\n";
-        int location = 0;
-        iterate_node_children(ast, node, [&needs_wgsl_location, &location, &indent, &stream](const AstNode* child_node) {
-            assert(child_node->node_type == AstNodeType::StructMember);
-
-            stream << get_indent(indent + 1);
-            if (output_attributes(child_node->attributes, stream))
-            {
-                stream << ' ';
-            }
-            if (language_target == LanguageTargetMSL)
-            {
-                stream << convert_type(child_node->type) << ' ' << child_node->name << ";\n";
-            }
-            if (language_target == LanguageTargetWGSL)
-            {
-                bool has_position_attribute = has_attribute(child_node, "position");
-                if (needs_wgsl_location && !has_position_attribute)
-                {
-                    stream << "@location(" << (location++) << ") ";
-                }
-                stream << child_node->name << ": " << convert_type(child_node->type) << ",\n";
-            }
-            return true;
-        });
-        stream << "};\n\n";
-    }
-
-    void output_uniform_group(const Ast* ast, const AstNode* node, std::ostream& stream, int indent)
-    {
-        assert(node->node_type == AstNodeType::UniformGroup);
-        // TODO: This should not be an assert
-        assert(!node->name.starts_with('_') && "Uniform group names must not start with an underscore");
-
-        if (reflection_info != nullptr) {
-            *reflection_info << "uniform_group " << node->name << ' ' << next_binding << " { ";
-            bool is_first_child = true;
-            iterate_node_children(ast, node, [&is_first_child](const AstNode* child_node) {
-                assert(child_node->node_type == AstNodeType::UniformGroupMember);
-                if (!is_first_child) *reflection_info << ", ";
-                is_first_child = false;
-                *reflection_info << child_node->type << ' ' << child_node->name;
-                return true;
-            });
-            *reflection_info << " }\n";
-        }
-
-        if (language_target == LanguageTargetMSL)
-        {
-            // TODO: Use attributes to declare the address space
-            constexpr std::string_view address_space = "device";
-
-            stream << get_indent(indent);
-            if (output_attributes(node->attributes, stream))
-            {
-                stream << '\n';
-            }
-            stream << address_space << " struct {\n";
-            iterate_node_children(ast, node, [&indent, &stream](const AstNode* child_node) {
-                assert(child_node->node_type == AstNodeType::UniformGroupMember);
-
-                stream << get_indent(indent + 1);
-                if (output_attributes(child_node->attributes, stream))
-                {
-                    stream << ' ';
-                }
-                stream << convert_type(child_node->type) << ' ' << child_node->name << ";\n";
-                return true;
-            });
-            stream << "}& constant " << node->name << " [[buffer(" << (next_binding++) << ")]];\n\n";
-            return;
-        }
-        if (language_target == LanguageTargetWGSL)
-        {
-            stream << get_indent(indent) << "struct _" << node->name << "_t {\n";
-            // TODO: Output attributes
-            iterate_node_children(ast, node, [&indent, &stream](const AstNode* child_node) {
-                assert(child_node->node_type == AstNodeType::UniformGroupMember);
-
-                stream << get_indent(indent + 1);
-                if (output_attributes(child_node->attributes, stream))
-                {
-                    stream << ' ';
-                }
-                stream << child_node->name << ": " << convert_type(child_node->type) << ",\n";
-
-                return true;
-            });
-            stream << "};\n\n@group(" << (next_binding++) << ") @binding(0) var<uniform> " << node->name << ": _" << node->name << "_t;\n\n";
-            return;
-        }
-        assert(false);
-    }
-
-    void output_vertex_group(const Ast* ast, const AstNode* node, std::ostream& stream, int indent)
-    {
-        assert(node->node_type == AstNodeType::VertexGroup);
-        // TODO: This should not be an assert
-        assert(!node->name.starts_with('_') && "Vertex group names must not start with an underscore");
-
-        if (reflection_info != nullptr) {
-            *reflection_info << "vertex_group " << node->name;
-            output_space_and_user_attributes(node, *reflection_info);
-            *reflection_info << " { ";
-            bool is_first_child = true;
-            iterate_node_children(ast, node, [&is_first_child](const AstNode* child_node) {
-                assert(child_node->node_type == AstNodeType::VertexGroupMember);
-                if (!is_first_child) *reflection_info << ", ";
-                is_first_child = false;
-                *reflection_info << child_node->type << ' ' << child_node->name;
-                output_space_and_user_attributes(child_node, *reflection_info);
-                return true;
-            });
-            *reflection_info << " }\n";
-        }
-
-        if (language_target == LanguageTargetMSL)
-        {
-            stream << get_indent(indent);
-            if (output_attributes(node->attributes, stream))
-            {
-                stream << '\n';
-            }
-            stream << "struct " << node->name << " {\n";
-            int attribute = 0;
-            iterate_node_children(ast, node, [&attribute, &indent, &stream](const AstNode* child_node) {
-                assert(child_node->node_type == AstNodeType::VertexGroupMember);
-
-                stream << get_indent(indent + 1);
-                if (output_attributes(child_node->attributes, stream))
-                {
-                    stream << ' ';
-                }
-                stream << convert_type(child_node->type) << ' ' << child_node->name << " [[attribute(" << (attribute++) << ")]];\n";
-                return true;
-            });
-            stream << "};\n\n";
-            return;
-        }
-        if (language_target == LanguageTargetWGSL)
-        {
-            stream << get_indent(indent) << "struct " << node->name << " {\n";
-            int location = 0;
-            iterate_node_children(ast, node, [&location, &indent, &stream](const AstNode* child_node) {
-                assert(child_node->node_type == AstNodeType::VertexGroupMember);
-
-                stream << get_indent(indent + 1);
-                stream << "@location(" << (location++) << ") " << child_node->name << ": " << convert_type(child_node->type) << ",\n";
-
-                return true;
-            });
-            stream << "};\n\n";
-            return;
-        }
-        assert(false);
-    }
-
-    void output_function(const Ast* ast, const AstNode* node, std::ostream& stream, int indent)
-    {
-        assert(node->node_type == AstNodeType::FunctionDeclaration);
-
-        bool is_entry_point = false;
-        if (reflection_info)
-        {
-            if (has_attribute(node, "vertex"))
-            {
-                *reflection_info << "vertex_function " << node->name;
-
-                iterate_node_children(ast, node, [&](const AstNode* child_node) {
-                    if (child_node->node_type != AstNodeType::FunctionArg)
-                    {
-                        return false;
-                    }
-                    if (child_node->attributes.size() == 0)
-                    {
-                        *reflection_info << ' ' << child_node->type;
-                    }
-                    return true;
-                });
-
-                *reflection_info << '\n';
-                is_entry_point = true;
-            }
-            if (has_attribute(node, "fragment"))
-            {
-                *reflection_info << "fragment_function " << node->name << '\n';
-                is_entry_point = true;
-            }
-        }
-
-        stream << get_indent(indent);
-        if (output_attributes(node->attributes, stream))
-        {
-            stream << '\n';
-        }
-        if (language_target == LanguageTargetMSL)
-        {
-            stream << convert_type(node->type) << ' ';
-        }
-        if (language_target == LanguageTargetWGSL)
-        {
-            stream << "fn ";
-        }
-        stream << node->name << '(';
+        stream << "vertex_group " << node.struct_declaration.name;
+        output_space_and_user_attributes(node, stream);
+        stream << " { ";
 
         bool is_first_child = true;
-        iterate_node_children(ast, node, [&stream, &is_first_child, &is_entry_point](const AstNode* child_node) {
-            if (child_node->node_type == AstNodeType::FunctionArg)
-            {
-                if (!is_first_child)
-                {
-                    stream << ", ";
-                }
-                if (output_attributes(child_node->attributes, stream))
-                {
-                    stream << ' ';
-                }
-                else if (language_target == LanguageTargetMSL && is_entry_point)
-                {
-                    // TODO: Validation
-                    stream << "[[stage_in]] ";
-                }
-                if (language_target == LanguageTargetMSL)
-                {
-                    stream << convert_type(child_node->type) << ' ';
-                }
-                stream << child_node->name;
-                if (language_target == LanguageTargetWGSL)
-                {
-                    stream << ": " << convert_type(child_node->type);
-                }
-                is_first_child = false;
-                return true;
-            }
-            return false;
-        });
-
-        if (language_target == LanguageTargetMSL)
+        for (uint32_t member_node_index : node.struct_declaration.member_nodes)
         {
-            stream << ") {\n";
+            const AstNode& member_node = ast->nodes[member_node_index];
+            assert(member_node.node_type == AstNodeType::VertexGroupMember);
+
+            if (!is_first_child) stream << ", ";
+            is_first_child = false;
+
+            stream << member_node.struct_member.type_name << ' ' << member_node.struct_member.name;
+            output_space_and_user_attributes(member_node, stream);
         }
-        if (language_target == LanguageTargetWGSL)
-        {
-            bool is_fragment_shader = has_attribute(node, "fragment");
-            stream << ") -> ";
-            if (is_fragment_shader)
-            {
-                stream << "@location(0) ";
-            }
-            stream << convert_type(node->type) << " {\n";
-        }
-
-        iterate_node_children(ast, node, [&ast, &indent, &stream](const AstNode* child_node) {
-            if (child_node->node_type == AstNodeType::FunctionArg)
-            {
-                return true;
-            }
-
-            output_node(ast, child_node, stream, indent + 1);
-
-            return true;
-        });
-
-        stream << "}\n\n";
+        stream << " }\n";
     }
 
-    void output_expression(const Ast* ast, const AstNode* node, std::ostream& stream, bool is_root_expression);
-
-    void output_function_call(const Ast* ast, const AstNode* node, std::ostream& stream)
+    void output_function_declaration_reflection(const Ast* ast, const AstNode& node, std::ostream& stream)
     {
-        assert(node->node_type == AstNodeType::FunctionCall);
-
-        stream << convert_function_call(node->name) << '(';
-        bool is_first_argument = true;
-        iterate_node_children(ast, node, [&ast, &stream, &is_first_argument](const AstNode* child_node) {
-            if (!is_first_argument)
-            {
-                stream << ", ";
-            }
-            is_first_argument = false;
-            output_expression(ast, child_node, stream, true);
-            return true;
-        });
-        stream << ')';
-    }
-
-    void output_expression(const Ast* ast, const AstNode* node, std::ostream& stream, bool is_root_expression)
-    {
-        if (!is_root_expression)
+        if (has_attribute(&node, "vertex"))
         {
-            stream << '(';
-        }
+            stream << "vertex_function " << node.function_declaration.name;
 
-        bool needs_spacing = false;
-        uint32_t property_node_index = 0;
-        iterate_node_children(ast, node, [&ast, &stream, &needs_spacing, &property_node_index](const AstNode* child_node) {
-            if (child_node->node_type == AstNodeType::PropertyAccess)
+            for (uint32_t function_arg_node_index : node.function_declaration.argument_nodes)
             {
-                property_node_index = child_node->index;
-                return false;
-            }
-            if (needs_spacing && child_node->node_type != AstNodeType::ArrayIndex)
-            {
-                stream << ' ';
-            }
-            switch (child_node->node_type)
-            {
-                case AstNodeType::ArrayIndex:
-                    stream << '[';
-                    assert(child_node->index + 1 < ast->nodes.size());
-                    output_expression(ast, &ast->nodes[child_node->index + 1], stream, true);
-                    stream << ']';
-                    break;
-                case AstNodeType::NumericLiteral:
-                    stream << child_node->num_str;
-                    needs_spacing = true;
-                    break;
-                case AstNodeType::Variable:
-                    stream << child_node->name;
-                    needs_spacing = true;
-                    for (size_t offset = 0; offset < child_node->num_children; offset++)
-                    {
-                        const AstNode* property_node = &ast->nodes[child_node->index + offset + 1];
-                        assert(property_node->node_type == AstNodeType::PropertyAccess);
-                        stream << '.' << property_node->name;
-                    }
-                    break;
-                case AstNodeType::FunctionCall:
-                    output_function_call(ast, child_node, stream);
-                    needs_spacing = true;
-                    break;
-                case AstNodeType::BinaryOperation:
-                    stream << child_node->operation;
-                    needs_spacing = true;
-                    break;
-                case AstNodeType::UnaryOperation:
-                    stream << child_node->operation;
-                    needs_spacing = false;
-                    break;
-                case AstNodeType::Expression:
-                    output_expression(ast, child_node, stream, false);
-                    needs_spacing = true;
-                    break;
-                default:
-                    std::cerr << "Invalid node type " << (int)child_node->node_type << " in output_expression()\n";
-            }
+                const AstNode& function_arg_node = ast->nodes[function_arg_node_index];
+                assert(function_arg_node.node_type == AstNodeType::FunctionArgument);
 
-            return true;
-        });
-
-        if (property_node_index != 0)
-        {
-            for (uint32_t i = property_node_index; i <= node->index + node->num_children; i++)
-            {
-                const AstNode* property_node = &ast->nodes[i];
-                assert(property_node->node_type == AstNodeType::PropertyAccess);
-
-                stream << '.' << property_node->name;
-            }
-        }
-
-        if (!is_root_expression)
-        {
-            stream << ")";
-        }
-    }
-
-    void output_variable_declaration(const Ast* ast, const AstNode* node, std::ostream& stream, int indent, bool output_semicolon = true)
-    {
-        assert(node->node_type == AstNodeType::VariableDeclaration);
-
-        bool is_variable_const = has_attribute(node, "const");
-        bool is_top_level = has_attribute(node, "top_level");
-        bool is_array = has_attribute(node, "array_size");
-        std::string_view array_count = is_array ? get_attribute(node, "array_size") : "";
-
-        stream << get_indent(indent);
-        if (language_target == LanguageTargetMSL)
-        {
-            if (is_top_level) stream << "constant ";
-            // TODO: constexpr is not outputted due to many of MSL's stdlib functions not being constexpr.
-            //       Perhaps such expressions can be computed at compile time.
-            if (is_variable_const) stream << "const ";
-            stream << convert_type(node->type) << ' ' << node->name;
-            if (is_array) stream << '[' << array_count << ']';
-        }
-        if (language_target == LanguageTargetWGSL)
-        {
-            stream << (is_variable_const ? "const " : "var ") << node->name;
-            if (!is_array)
-            {
-                stream << ": " << convert_type(node->type);
-            }
-        }
-
-        if (node->num_children > 0)
-        {
-            if (is_array)
-            {
-                if (language_target == LanguageTargetWGSL)
+                if (function_arg_node.attributes.size == 0)
                 {
-                    stream << " = array<" << convert_type(node->type) << ", " << array_count << ">(";
-                }
-                if (language_target == LanguageTargetMSL)
-                {
-                    stream << " {";
-                }
-
-                bool is_first_child = true;
-                iterate_node_children(ast, node, [&ast, &stream, &is_first_child, &indent](const AstNode* child_node) {
-                    assert(child_node->node_type == AstNodeType::Expression);
-                    if (!is_first_child) stream << ',';
-                    is_first_child = false;
-                    stream << '\n' << get_indent(indent + 1);
-                    output_expression(ast, child_node, stream, true);
-                    return true;
-                });
-
-                if (language_target == LanguageTargetWGSL)
-                {
-                    stream << "\n)";
-                }
-                if (language_target == LanguageTargetMSL)
-                {
-                    stream << "\n}";
+                    stream << ' ' << function_arg_node.function_argument.type_name;
                 }
             }
-            else
-            {
-                stream << " = ";
-
-                const AstNode* expression_node = get_nth_child(ast, node, 1);
-                assert(expression_node->node_type == AstNodeType::Expression);
-                output_expression(ast, expression_node, stream, true);
-            }
         }
-        else
+        else if (has_attribute(&node, "fragment"))
         {
-            if (language_target == LanguageTargetMSL)
-            {
-                // Uninitialized variable
-                stream << "{}";
-            }
+            stream << "fragment_function " << node.function_declaration.name;
         }
-
-        if (output_semicolon)
-        {
-            stream << ";\n";
-            if (is_top_level) stream << '\n';
-        }
+        stream << '\n';
     }
 
-    void output_variable_assignment(const Ast* ast, const AstNode* node, std::ostream& stream, int indent, bool output_semicolon = true)
+    void output_root_node_reflection(const Ast* ast, const AstNode& node, std::ostream& stream)
     {
-        assert(node->node_type == AstNodeType::VariableAssignment);
-
-        stream << get_indent(indent);
-
-        stream << node->name;
-        for (size_t i = node->index + 1; i < ast->nodes.size(); i++)
+        switch (node.node_type)
         {
-            if (ast->nodes[i].node_type != AstNodeType::PropertyAccess)
-            {
-                break;
-            }
-            stream << '.' << ast->nodes[i].name;
-        }
-
-        if (node->operation == "++" || node->operation == "--")
-        {
-            stream << node->operation;
-        }
-        else
-        {
-            stream << ' ' << node->operation << ' ';
-        }
-
-        iterate_node_children(ast, node, [&ast, &stream](const AstNode* child_node) {
-            if (child_node->node_type == AstNodeType::Expression)
-            {
-                output_expression(ast, child_node, stream, true);
-                return false;
-            }
-            return true;
-        });
-
-        if (output_semicolon) stream << ";\n";
-    }
-
-    void output_scope(const Ast* ast, const AstNode* node, std::ostream& stream, int indent)
-    {
-        stream << get_indent(indent) << "{\n";
-        iterate_node_children(ast, node, [&ast, &stream, &indent](const AstNode* child_node) {
-            output_node(ast, child_node, stream, indent + 1);
-            return true;
-        });
-        stream << get_indent(indent) << "}\n";
-    }
-
-    void output_if_else_for_while(const Ast* ast, const AstNode* node, std::ostream& stream, int indent)
-    {
-        assert(node->node_type == AstNodeType::IfStatement || node->node_type == AstNodeType::ElseIfStatement ||
-               node->node_type == AstNodeType::ElseStatement || node->node_type == AstNodeType::ForLoop ||
-               node->node_type == AstNodeType::WhileLoop);
-
-        stream << get_indent(indent);
-        switch (node->node_type)
-        {
-            case AstNodeType::IfStatement:     stream << "if"; break;
-            case AstNodeType::ElseIfStatement: stream << "else if"; break;
-            case AstNodeType::ElseStatement:   stream << "else"; break;
-            case AstNodeType::ForLoop:         stream << "for"; break;
-            case AstNodeType::WhileLoop:       stream << "while"; break;
-            default: assert(false);
-        }
-
-        if (node->node_type == AstNodeType::ForLoop)
-        {
-            stream << " (";
-
-            const AstNode* initialization_node = get_nth_child(ast, node, 1);
-            const AstNode* expression_node     = get_nth_child(ast, node, 2);
-            const AstNode* update_node         = get_nth_child(ast, node, 3);
-
-            assert(initialization_node != nullptr && expression_node != nullptr && update_node != nullptr);
-
-            output_variable_declaration(ast, initialization_node, stream, 0, false);
-            stream << "; ";
-            output_expression(ast, expression_node, stream, true);
-            stream << "; ";
-            output_variable_assignment(ast, update_node, stream, 0, false);
-
-            stream << ')';
-        }
-        else if (node->node_type != AstNodeType::ElseStatement)
-        {
-            stream << " (";
-            const AstNode* expression_node = get_nth_child(ast, node, 1);
-            assert(expression_node != nullptr);
-            output_expression(ast, expression_node, stream, true);
-            stream << ')';
-        }
-
-        stream << " {\n";
-        iterate_node_children(ast, node, [&ast, &stream, &indent](const AstNode* child_node) {
-            output_node(ast, child_node, stream, indent + 1);
-            return true;
-        }, node->node_type == AstNodeType::ForLoop ? 3 : 1);
-
-        stream << get_indent(indent) << "}\n";
-    }
-
-    void output_return_statement(const Ast* ast, const AstNode* node, std::ostream& stream, int indent)
-    {
-        assert(node->node_type == AstNodeType::ReturnStatement);
-
-        stream << get_indent(indent) << "return ";
-
-        const AstNode* expression_node = get_nth_child(ast, node, 1);
-        assert(expression_node != nullptr);
-        output_expression(ast, expression_node, stream, true);
-
-        stream << ";\n";
-    }
-
-    void output_discard_statement(std::ostream& stream, int indent)
-    {
-        stream << get_indent(indent);
-        if (language_target == LanguageTargetWGSL)
-        {
-            stream << "discard";
-        }
-        if (language_target == LanguageTargetMSL)
-        {
-            stream << "discard_fragment()";
-        }
-        stream << ";\n";
-    }
-
-    void output_node(const Ast* ast, const AstNode* node, std::ostream& stream, int indent)
-    {
-        switch (node->node_type)
-        {
-            case AstNodeType::Struct:
-                output_struct(ast, node, stream, indent);
-                break;
             case AstNodeType::UniformGroup:
-                output_uniform_group(ast, node, stream, indent);
+                output_uniform_group_reflection(ast, node, stream);
                 break;
             case AstNodeType::VertexGroup:
-                output_vertex_group(ast, node, stream, indent);
+                output_vertex_group_reflection(ast, node, stream);
                 break;
-
             case AstNodeType::FunctionDeclaration:
-                output_function(ast, node, stream, indent);
+                output_function_declaration_reflection(ast, node, stream);
                 break;
-
-            case AstNodeType::Scope:
-                output_scope(ast, node, stream, indent);
-                break;
-
-            case AstNodeType::VariableDeclaration:
-                output_variable_declaration(ast, node, stream, indent);
-                break;
-            case AstNodeType::VariableAssignment:
-                output_variable_assignment(ast, node, stream, indent);
-                break;
-
-            case AstNodeType::IfStatement:
-            case AstNodeType::ElseIfStatement:
-            case AstNodeType::ElseStatement:
-            case AstNodeType::ForLoop:
-            case AstNodeType::WhileLoop:
-                output_if_else_for_while(ast, node, stream, indent);
-                break;
-
-            case AstNodeType::ReturnStatement:
-                output_return_statement(ast, node, stream, indent);
-                break;
-            case AstNodeType::DiscardStatement:
-                output_discard_statement(stream, indent);
-                break;
-
             default:
-                std::cerr << "unsupported node type " << (int)node->node_type << '\n';
+                break;
         }
     }
 
-    void convert(const Ast* ast, std::ostream& stream, LanguageTarget output_target, std::ostream* reflection_stream)
+    void to_msl(const Ast* ast, std::ostream& stream)
     {
-        assert(output_target == LanguageTargetMSL || output_target == LanguageTargetWGSL);
-        language_target = output_target;
-        next_binding = 0;
-        reflection_info = reflection_stream;
+        stream << "#include <metal_stdlib>\n\nusing namespace metal;\n";
 
-        if (language_target == LanguageTargetMSL)
+        for (uint32_t root_node_index : ast->root_nodes)
         {
-            stream << "#include <metal_stdlib>\n\nusing namespace metal;\n\n";
+            stream << '\n';
+            output_root_node(ast, ast->nodes[root_node_index], stream, Backend::MSL);
         }
+    }
 
-        for (uint32_t i = 0; i < ast->nodes.size(); i++)
+    void to_wgsl(const Ast* ast, std::ostream& stream)
+    {
+        for (uint32_t root_node_index : ast->root_nodes)
         {
-            const AstNode* child_node = &ast->nodes[i];
-            output_node(ast, child_node, stream, 0);
-            i += child_node->num_children;
+            stream << '\n';
+            output_root_node(ast, ast->nodes[root_node_index], stream, Backend::WGSL);
         }
+    }
 
-        if (next_binding > 4)
+    void to_reflection(const Ast* ast, std::ostream& stream)
+    {
+        for (uint32_t root_node_index : ast->root_nodes)
         {
-            std::cerr << "Warning: WGSL implementations have a default max bind group count of 4, and this shader exceeds this limit.\n";
+            output_root_node_reflection(ast, ast->nodes[root_node_index], stream);
         }
     }
 }
