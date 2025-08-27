@@ -129,26 +129,33 @@ int main(int argc, char** argv)
         error::init_error_info(input_filepath, code);
         parser::Ast* ast = parser::generate_ast(code);
 
+        std::stringstream output_stream;
+
         if (should_print_ast)
         {
             parser::print_ast(ast);
         }
         else if (should_print_msl)
         {
-            converter::to_msl(ast, std::cout);
+            converter::to_msl(ast, output_stream);
         }
         else if (should_print_wgsl)
         {
-            converter::to_wgsl(ast, std::cout);
+            converter::to_wgsl(ast, output_stream);
         }
         else if (should_print_reflection)
         {
-            converter::to_reflection(ast, std::cout);
+            converter::to_reflection(ast, output_stream);
         }
         else
         {
             std::cerr << "If no output files are provided, --print-ast, --msl, --wgsl, or --reflection must be provided.\n";
             return EXIT_FAILURE;
+        }
+
+        if (!error::had_error())
+        {
+            std::cout << output_stream.str();
         }
 
         parser::free_ast(ast);

@@ -59,5 +59,6 @@ namespace tungsten::lexer
 
     Token get_next_token(LexerInfo* info);
     Token peek_next_token(LexerInfo* info);
+    Token peek_prev_token(LexerInfo* info);
     bool eof(LexerInfo* info);
 }

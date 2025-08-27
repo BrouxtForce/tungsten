@@ -74,7 +74,7 @@ namespace tungsten::converter
         }
         if (is_wgsl_builtin)
         {
-            return "builtin(" + std::string(attribute.name) + ") ";
+            return "builtin(" + std::string(attribute.name) + ")";
         }
         return {};
     }
@@ -337,7 +337,6 @@ namespace tungsten::converter
         }
     }
 
-
     void msl_output_variable_assignment(const Ast* ast, const AstNode& node, std::ostream& stream, int indent)
     {
         assert(node.node_type == AstNodeType::VariableAssignment);
@@ -413,7 +412,7 @@ namespace tungsten::converter
 
         backend == Backend::MSL ?
             msl_output_variable_assignment(ast, ast->nodes[node.for_loop.loop_expression], stream, 0) :
-            wgsl_output_variable_assignment(ast, ast->nodes[node.for_loop.init_expression], stream, 0);
+            wgsl_output_variable_assignment(ast, ast->nodes[node.for_loop.loop_expression], stream, 0);
         stream << ") ";
 
         output_function_body(ast, ast->nodes[node.for_loop.body], stream, indent, backend);
@@ -672,12 +671,13 @@ namespace tungsten::converter
                     stream << ' ' << function_arg_node.function_argument.type_name;
                 }
             }
+
+            stream << '\n';
         }
         else if (has_attribute(&node, "fragment"))
         {
-            stream << "fragment_function " << node.function_declaration.name;
+            stream << "fragment_function " << node.function_declaration.name << '\n';
         }
-        stream << '\n';
     }
 
     void output_root_node_reflection(const Ast* ast, const AstNode& node, std::ostream& stream)

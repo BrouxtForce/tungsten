@@ -207,6 +207,9 @@ namespace tungsten::parser
         IndexedSpan<Attribute> attributes;
         uint8_t num_parenthesis;
 
+        uint32_t byte_offset;
+        uint32_t byte_length;
+
         union {
             AstNodeStruct struct_declaration;
             AstNodeStructMember struct_member;

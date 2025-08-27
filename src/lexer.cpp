@@ -90,6 +90,7 @@ namespace tungsten::lexer
         CharacterStream stream;
 
         Token peeked_token;
+        Token prev_token;
         bool has_peeked_token = false;
     };
 
@@ -383,6 +384,7 @@ namespace tungsten::lexer
         if (info->has_peeked_token)
         {
             info->has_peeked_token = false;
+            info->prev_token = info->peeked_token;
             return info->peeked_token;
         }
 
@@ -395,34 +397,41 @@ namespace tungsten::lexer
         if (is_whitespace(c))
         {
             read_whitespace(info);
-            return get_next_token(info);
+            info->prev_token = get_next_token(info);
+            return info->prev_token;
         }
         if (is_maybe_comment(c))
         {
             if (try_read_comment(info))
             {
-                return get_next_token(info);
+                info->prev_token = get_next_token(info);
+                return info->prev_token;
             }
         }
         if (is_string(c))
         {
-            return read_string(info);
+            info->prev_token = read_string(info);
+            return info->prev_token;
         }
         if (is_number(c))
         {
-            return read_number(info);
+            info->prev_token = read_number(info);
+            return info->prev_token;
         }
         if (is_name_or_keyword(c))
         {
-            return read_name_or_keyword(info);
+            info->prev_token = read_name_or_keyword(info);
+            return info->prev_token;
         }
         if (is_punctuation(c))
         {
-            return read_punctuation(info);
+            info->prev_token = read_punctuation(info);
+            return info->prev_token;
         }
         if (is_operator(c))
         {
-            return read_operator(info);
+            info->prev_token = read_operator(info);
+            return info->prev_token;
         }
 
         char invalid_character = info->stream.read();
@@ -438,10 +447,19 @@ namespace tungsten::lexer
             return info->peeked_token;
         }
 
+        Token prev_token = info->prev_token;
+
         info->peeked_token = get_next_token(info);
         info->has_peeked_token = true;
 
+        info->prev_token = prev_token;
+
         return info->peeked_token;
+    }
+
+    Token peek_prev_token(LexerInfo* info)
+    {
+        return info->prev_token;
     }
 
     bool eof(LexerInfo* info)
