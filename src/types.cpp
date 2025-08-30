@@ -118,6 +118,19 @@ namespace tungsten::types
         return output;
     }
 
+    std::string scalar_to_string(ScalarType scalar_type)
+    {
+        Type type {
+            .kind = TypeKind::Builtin,
+            .builtin_type = {
+                .scalar = scalar_type,
+                .count_x = 1,
+                .count_y = 1
+            }
+        };
+        return type.name();
+    }
+
     const Type* get_builtin_type(std::string_view type_name)
     {
         auto it = name_type_map.find(std::string(type_name));
@@ -241,7 +254,7 @@ namespace tungsten::types
         return create_modified_type(new_type);
     }
 
-    void create_and_insert_struct_type(const Ast* ast, const AstNode& node)
+    const Type* create_struct_type(const Ast* ast, const AstNode& node)
     {
         Type& struct_type = type_list.emplace_back(Type{});
 
@@ -263,7 +276,7 @@ namespace tungsten::types
         if (get_builtin_type(node.struct_declaration.name) != &NULL_TYPE)
         {
             error::report("Structure name cannot be the same as a builtin type", node.byte_offset, node.byte_length);
-            return;
+            return &NULL_TYPE;
         }
 
         struct_type.user_type.name = node.struct_declaration.name;
@@ -286,9 +299,20 @@ namespace tungsten::types
         if (name_type_map.contains(std::string(struct_type.user_type.name)))
         {
             error::report("Another user-defined type already has this name", node.byte_offset, node.byte_length);
-            return;
+            return &NULL_TYPE;
         }
-        name_type_map.insert({ std::string(struct_type.user_type.name), &struct_type });
+        return &struct_type;
+    }
+
+    void create_and_insert_struct_type(const Ast* ast, const AstNode& node)
+    {
+        assert(node.node_type == AstNodeType::Struct || node.node_type == AstNodeType::VertexGroup);
+
+        const Type* type = create_struct_type(ast, node);
+        if (type != &NULL_TYPE)
+        {
+            name_type_map.insert({ std::string(type->user_type.name), type });
+        }
     }
 
     const Type* create_and_insert_function_type(const Ast* ast, const AstNode& node)
@@ -434,7 +458,32 @@ namespace tungsten::types
             return &NULL_TYPE;
         }
 
-        if (!is_equivalent_type(left_type, right_type))
+        const Type* return_type = left_type;
+
+        bool has_matching_operator = false;
+        if (node.binary_operation.operation == "=")
+        {
+            has_matching_operator = is_equivalent_type(left_type, right_type);
+        }
+        else if (left_type->is_valid_builtin() && right_type->is_valid_builtin())
+        {
+            has_matching_operator = is_equivalent_type(left_type, right_type);
+            if (node.binary_operation.operation == "*")
+            {
+                if (left_type->is_vector() && right_type->is_matrix())
+                {
+                    has_matching_operator = (left_type->builtin_type.count_x == right_type->builtin_type.count_y);
+                    return_type = left_type;
+                }
+                if (left_type->is_matrix() && right_type->is_vector())
+                {
+                    has_matching_operator = (left_type->builtin_type.count_y == right_type->builtin_type.count_x);
+                    return_type = right_type;
+                }
+            }
+        }
+
+        if (!has_matching_operator)
         {
             error::report(
                 "No matching operator for types '" + left_type->name() + "' and '" + right_type->name() + "'",
@@ -442,7 +491,7 @@ namespace tungsten::types
             );
             return &NULL_TYPE;
         }
-        return left_type;
+        return return_type;
     }
 
     const Type* type_check_variable_or_property_access(const Ast* ast, const AstNode& node)
@@ -456,12 +505,15 @@ namespace tungsten::types
             }
             return variable_type;
         }
-        assert(node.node_type == AstNodeType::PropertyAccess);
+        if (node.node_type != AstNodeType::PropertyAccess)
+        {
+            return type_check_expression_node(ast, node);
+        }
 
         const Type* left_type = type_check_variable_or_property_access(ast, ast->nodes[node.property_access.left]);
 
         // Access structure members
-        if (left_type->kind == TypeKind::Struct || left_type->kind == TypeKind::VertexGroup)
+        if (left_type->kind == TypeKind::Struct || left_type->kind == TypeKind::VertexGroup || left_type->kind == TypeKind::UniformGroup)
         {
             for (const TypeNamePair& pair : left_type->user_type.members)
             {
@@ -510,6 +562,7 @@ namespace tungsten::types
             return get_builtin_type(scalar_type.name() + std::to_string(swizzle.size()));
         }
 
+        error::report("Cannot access property of type '" + left_type->name() + "'", node.byte_offset, node.byte_length);
         return &NULL_TYPE;
     }
 
@@ -544,10 +597,55 @@ namespace tungsten::types
         assert(node.node_type == AstNodeType::FunctionCall);
 
         const Type* function_type = get_type(node.function_call.name);
+        if (function_type->kind == TypeKind::Builtin && function_type->is_vector())
+        {
+            uint32_t num_components_consumed = 0;
+            bool had_invalid_type = false;
+            for (uint32_t argument_node_index : node.function_call.argument_nodes)
+            {
+                const AstNode& expression_node = ast->nodes[argument_node_index];
+                const Type* expression_type = type_check_expression_node(ast, expression_node);
+
+                if (!expression_type->is_valid_builtin())
+                {
+                    error::report(
+                        "Expected scalar or vector type, but got '" + expression_type->name() + "'",
+                        expression_node.byte_offset, expression_node.byte_length
+                    );
+                    had_invalid_type = true;
+                    continue;
+                }
+                if (function_type->builtin_type.scalar != expression_type->builtin_type.scalar || expression_type->is_matrix())
+                {
+                    std::string left_scalar = scalar_to_string(function_type->builtin_type.scalar);
+
+                    error::report(
+                        "Expected scalar or vector of '" + left_scalar + "', but got '" + expression_type->name() + "'",
+                        expression_node.byte_offset, expression_node.byte_length
+                    );
+                    had_invalid_type = true;
+                    continue;
+                }
+
+                num_components_consumed += expression_type->builtin_type.count_x;
+            }
+
+            if (!had_invalid_type && num_components_consumed != function_type->builtin_type.count_x)
+            {
+                error::report(
+                    "Invalid number of components passed to '" + function_type->name() + "': Expected " +
+                    std::to_string((int)function_type->builtin_type.count_x) + ", but got " + std::to_string(num_components_consumed),
+                    node.byte_offset, node.byte_length
+                );
+            }
+
+            return function_type;
+        }
+
         if (function_type->kind != TypeKind::Function)
         {
             error::report("Function does not exist", node.byte_offset, node.byte_length);
-            return function_type->user_type.return_type;
+            return &NULL_TYPE;
         }
 
         if (function_type->user_type.members.size != node.function_call.argument_nodes.size)
@@ -750,10 +848,17 @@ namespace tungsten::types
         switch (node.node_type)
         {
             case AstNodeType::Struct:
-            case AstNodeType::UniformGroup:
             case AstNodeType::VertexGroup:
                 create_and_insert_struct_type(ast, node);
                 break;
+            case AstNodeType::UniformGroup: {
+                const Type* type = create_struct_type(ast, node);
+                if (type != &NULL_TYPE)
+                {
+                    scope_add_variable(type, type->user_type.name);
+                }
+                break;
+            }
             case AstNodeType::FunctionDeclaration: {
                 const Type* function_type = create_and_insert_function_type(ast, node);
                 if (function_type == &NULL_TYPE) break;

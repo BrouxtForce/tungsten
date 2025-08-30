@@ -129,7 +129,6 @@ int main(int argc, char** argv)
         std::string code = utility::read_file(input_filepath);
         error::init_error_info(input_filepath, code);
         parser::Ast* ast = parser::generate_ast(code);
-        types::type_check(ast);
 
         std::stringstream output_stream;
 
@@ -139,10 +138,12 @@ int main(int argc, char** argv)
         }
         else if (should_print_msl)
         {
+            types::type_check(ast);
             converter::to_msl(ast, output_stream);
         }
         else if (should_print_wgsl)
         {
+            types::type_check(ast);
             converter::to_wgsl(ast, output_stream);
         }
         else if (should_print_reflection)
