@@ -16,7 +16,6 @@ namespace tungsten::types
         ScalarType scalar;
         uint8_t count_x;
         uint8_t count_y;
-        bool is_array;
     };
 
     struct TypeNamePair
@@ -45,6 +44,9 @@ namespace tungsten::types
     struct Type
     {
         TypeKind kind;
+        bool is_const;
+        bool is_array;
+
         union {
             BuiltinType builtin_type;
             UserType user_type;
@@ -54,7 +56,6 @@ namespace tungsten::types
         bool is_scalar() const;
         bool is_vector() const;
         bool is_matrix() const;
-        bool is_array() const;
 
         std::string name() const;
     };

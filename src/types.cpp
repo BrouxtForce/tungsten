@@ -12,8 +12,7 @@ namespace tungsten::types
 {
     using parser::Ast, parser::AstNode, parser::AstNodeType;
 
-    static std::unordered_map<std::string_view, const Type*> name_type_map;
-    static std::unordered_map<std::string_view, const Type*> array_name_type_map;
+    static std::unordered_map<std::string, const Type*> name_type_map;
     static std::deque<Type> type_list;
     static std::vector<TypeNamePair> type_name_pairs;
     static std::vector<TypeNamePair> variable_stack;
@@ -70,23 +69,18 @@ namespace tungsten::types
         return builtin_type.count_y > 1;
     }
 
-    bool Type::is_array() const
-    {
-        assert(is_valid_builtin());
-        return builtin_type.is_array;
-    }
-
     std::string Type::name() const
     {
         if (kind == TypeKind::None)
         {
             return "null";
         }
+
+        std::string output;
         if (kind == TypeKind::Builtin)
         {
             assert(is_valid_builtin());
 
-            std::string output;
             switch (builtin_type.scalar)
             {
                 case ScalarType::Bool:  output = "bool";  break;
@@ -106,18 +100,27 @@ namespace tungsten::types
                 output += 'x';
                 output += static_cast<char>(builtin_type.count_y + '0');
             }
-            if (builtin_type.is_array)
-            {
-                output += "[]";
-            }
-            return output;
         }
-        return std::string(user_type.name);
+        else
+        {
+            output = std::string(user_type.name);
+        }
+
+        if (is_const)
+        {
+            output = "const " + output;
+        }
+        if (is_array)
+        {
+            output += "[]";
+        }
+
+        return output;
     }
 
     const Type* get_builtin_type(std::string_view type_name)
     {
-        auto it = name_type_map.find(type_name);
+        auto it = name_type_map.find(std::string(type_name));
         if (it != name_type_map.end())
         {
             if (it->second->kind == TypeKind::Builtin)
@@ -196,13 +199,13 @@ namespace tungsten::types
         assert(type.is_valid_builtin());
 
         const Type* output_type = &type_list.emplace_back(type);
-        name_type_map.insert({ type_name, output_type });
+        name_type_map.insert({ std::string(type_name), output_type });
         return output_type;
     }
 
     const Type* get_type(std::string_view type_name)
     {
-        auto it = name_type_map.find(type_name);
+        auto it = name_type_map.find(std::string(type_name));
         if (it != name_type_map.end())
         {
             return it->second;
@@ -210,25 +213,32 @@ namespace tungsten::types
         return get_builtin_type(type_name);
     }
 
-    const Type* get_array_type(std::string_view type_name)
+    const Type* create_modified_type(const Type& type)
     {
-        auto it = array_name_type_map.find(type_name);
-        if (it != array_name_type_map.end())
+        std::string key = type.name();
+
+        auto it = name_type_map.find(key);
+        if (it != name_type_map.end())
         {
             return it->second;
         }
 
-        const Type* type = get_builtin_type(type_name);
-        if (type == &NULL_TYPE)
+        const Type* out = &type_list.emplace_back(type);
+        name_type_map.insert({ out->name(), out });
+
+        return out;
+    }
+
+    const Type* remove_const(const Type* type)
+    {
+        if (!type->is_const)
         {
-            return &NULL_TYPE;
+            return type;
         }
 
-        Type& array_type = type_list.emplace_back(*type);
-        array_type.builtin_type.is_array = true;
-
-        array_name_type_map.insert({ type_name, &array_type });
-        return &array_type;
+        Type new_type = *type;
+        new_type.is_const = false;
+        return create_modified_type(new_type);
     }
 
     void create_and_insert_struct_type(const Ast* ast, const AstNode& node)
@@ -273,29 +283,19 @@ namespace tungsten::types
             error::check(member_type.type != &NULL_TYPE, "Member type must be a builtin type", member_node.byte_offset, member_node.byte_length);
         }
 
-        if (name_type_map.contains(struct_type.user_type.name))
+        if (name_type_map.contains(std::string(struct_type.user_type.name)))
         {
             error::report("Another user-defined type already has this name", node.byte_offset, node.byte_length);
             return;
         }
-        name_type_map.insert({ struct_type.user_type.name, &struct_type });
+        name_type_map.insert({ std::string(struct_type.user_type.name), &struct_type });
     }
 
     const Type* create_and_insert_function_type(const Ast* ast, const AstNode& node)
     {
         Type& function_type = type_list.emplace_back(Type{});
         function_type.kind = TypeKind::Function;
-        function_type.user_type.return_type = &NULL_TYPE;
-
-        auto return_type_it = name_type_map.find(node.function_declaration.return_type_name);
-        if (return_type_it != name_type_map.end())
-        {
-            function_type.user_type.return_type = return_type_it->second;
-        }
-        else
-        {
-            function_type.user_type.return_type = get_builtin_type(node.function_declaration.return_type_name);
-        }
+        function_type.user_type.return_type = get_type(node.function_declaration.return_type_name);
 
         if (function_type.user_type.return_type == &NULL_TYPE)
         {
@@ -328,7 +328,7 @@ namespace tungsten::types
             }
         }
 
-        name_type_map.insert({ node.function_declaration.name, &function_type });
+        name_type_map.insert({ std::string(node.function_declaration.name), &function_type });
         return &function_type;
     }
 
@@ -406,7 +406,7 @@ namespace tungsten::types
     bool is_equivalent_type(const Type* a, const Type* b)
     {
         // TODO: Allow implicit casts rather than expecting the exact type
-        return a == b && a != &NULL_TYPE;
+        return remove_const(a) == remove_const(b) && a != &NULL_TYPE;
     }
 
     const Type* get_numeric_literal_type(std::string_view literal)
@@ -518,7 +518,7 @@ namespace tungsten::types
         assert(node.node_type == AstNodeType::ArrayIndex);
 
         const Type* array_type = type_check_variable_or_property_access(ast, ast->nodes[node.array_index.left]);
-        if (!array_type->is_valid_builtin() || !array_type->is_array())
+        if (!array_type->is_array)
         {
             const AstNode& indexed_node = ast->nodes[node.array_index.left];
             error::report("Type being indexed is not an array", indexed_node.byte_offset, indexed_node.byte_length);
@@ -533,8 +533,8 @@ namespace tungsten::types
         }
 
         Type output_type = *array_type;
-        output_type.builtin_type.is_array = false;
-        return get_builtin_type(output_type.name());
+        output_type.is_array = false;
+        return create_modified_type(output_type);
     }
 
     void type_check_expression(const Ast* ast, const AstNode& node, const Type* return_type);
@@ -614,9 +614,14 @@ namespace tungsten::types
             return;
         }
 
-        const Type* variable_type = node.variable_declaration.is_array_declaration ?
-            get_array_type(node.variable_declaration.type_name) :
-            get_type(node.variable_declaration.type_name);
+        const Type* variable_type = get_type(node.variable_declaration.type_name);
+        if (node.variable_declaration.is_array_declaration || node.variable_declaration.is_const)
+        {
+            Type modified_variable_type = *variable_type;
+            modified_variable_type.is_array = node.variable_declaration.is_array_declaration;
+            modified_variable_type.is_const = node.variable_declaration.is_const;
+            variable_type = create_modified_type(modified_variable_type);
+        }
 
         if (variable_type == &NULL_TYPE)
         {
@@ -647,6 +652,12 @@ namespace tungsten::types
         assert(node.node_type == AstNodeType::VariableAssignment);
 
         const Type* left_type = type_check_variable_or_property_access(ast, ast->nodes[node.variable_assignment.variable_node]);
+
+        if (left_type->is_const)
+        {
+            const AstNode& left_node = ast->nodes[node.variable_assignment.variable_node];
+            error::report("Cannot assign to const variable", left_node.byte_offset, left_node.byte_length);
+        }
 
         if (node.variable_assignment.expression == 0)
         {
