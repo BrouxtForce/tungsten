@@ -4,6 +4,7 @@
 #include <deque>
 #include <cstring>
 #include <vector>
+#include <cassert>
 
 #include "tungsten/lexer.hpp"
 
@@ -51,6 +52,12 @@ namespace tungsten::parser
         std::vector<T>* vector;
         uint32_t index;
         uint32_t size;
+
+        inline const T& operator[](uint32_t element_index) const
+        {
+            assert(vector != nullptr && index + element_index < vector->size());
+            return (*vector)[index + element_index];
+        }
 
         inline std::vector<T>::iterator begin() const
         {

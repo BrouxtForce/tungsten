@@ -9,6 +9,7 @@
 #include "tungsten/error.hpp"
 #include "tungsten/parser.hpp"
 #include "tungsten/converter.hpp"
+#include "tungsten/types.hpp"
 
 struct Arguments {
     int index = 1;
@@ -128,6 +129,7 @@ int main(int argc, char** argv)
         std::string code = utility::read_file(input_filepath);
         error::init_error_info(input_filepath, code);
         parser::Ast* ast = parser::generate_ast(code);
+        types::type_check(ast);
 
         std::stringstream output_stream;
 
@@ -208,6 +210,7 @@ int main(int argc, char** argv)
         }
 
         parser::Ast* ast = parser::generate_ast(code);
+        types::type_check(ast);
 
         bool fail = false;
         if (!msl_output_filepath.empty())
