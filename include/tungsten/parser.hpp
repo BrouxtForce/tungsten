@@ -29,6 +29,7 @@ namespace tungsten::parser
         VariableAssignment,
         ArrayIndex,
         NumericLiteral,
+        BooleanLiteral,
         UnaryOperation,
         BinaryOperation,
         Variable,
@@ -144,6 +145,11 @@ namespace tungsten::parser
         std::string_view str;
     };
 
+    struct AstNodeBooleanLiteral
+    {
+        bool value;
+    };
+
     struct AstNodeUnaryOperation
     {
         std::string_view operation;
@@ -227,6 +233,7 @@ namespace tungsten::parser
             AstNodeVariableAssignment variable_assignment;
             AstNodeArrayIndex array_index;
             AstNodeNumericLiteral numeric_literal;
+            AstNodeBooleanLiteral boolean_literal;
             AstNodeUnaryOperation unary_operation;
             AstNodeBinaryOperation binary_operation;
             AstNodeVariable variable;

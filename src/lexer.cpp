@@ -174,6 +174,9 @@ namespace tungsten::lexer
         if (name == "return")   keyword = Keyword::Return;
         if (name == "discard")  keyword = Keyword::Discard;
 
+        if (name == "true")  keyword = Keyword::True;
+        if (name == "false") keyword = Keyword::False;
+
         if (name == "const") keyword = Keyword::Const;
 
         if (keyword == Keyword::None)

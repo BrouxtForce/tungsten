@@ -303,6 +303,22 @@ namespace tungsten::parser
     }
 
     [[nodiscard]]
+    uint32_t parse_boolean_literal(Ast* ast)
+    {
+        push_source_location(ast);
+
+        AstNode& literal_node = ast_push_node(ast);
+        literal_node.node_type = AstNodeType::BooleanLiteral;
+
+        lexer::Keyword keyword = consume_keyword<2>(ast->lexer_info, { lexer::Keyword::True, lexer::Keyword::False });
+        literal_node.boolean_literal.value = (keyword == lexer::Keyword::True);
+
+        pop_source_location(ast);
+
+        return ast->nodes.size() - 1;
+    }
+
+    [[nodiscard]]
     uint32_t parse_binary_operation(Ast* ast, std::string_view operation, uint32_t left_operand, uint32_t right_operand)
     {
         constexpr std::array<std::string_view, 16> legal_binary_operations {
@@ -465,6 +481,10 @@ namespace tungsten::parser
 
                     continue;
                 }
+                case lexer::TokenType::Keyword: {
+                    left_operand = parse_boolean_literal(ast);
+                    continue;
+                };
                 case lexer::TokenType::Punctuation: {
                     if (token.punc == '(')
                     {

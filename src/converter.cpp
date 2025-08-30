@@ -223,6 +223,9 @@ namespace tungsten::converter
             case AstNodeType::NumericLiteral:
                 stream << node.numeric_literal.str;
                 break;
+            case AstNodeType::BooleanLiteral:
+                stream << (node.boolean_literal.value ? "true" : "false");
+                break;
             case AstNodeType::UnaryOperation:
                 stream << node.unary_operation.operation;
                 output_expression(ast, ast->nodes[node.unary_operation.operand], stream);

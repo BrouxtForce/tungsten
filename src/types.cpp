@@ -469,6 +469,8 @@ namespace tungsten::types
                 break;
             case AstNodeType::NumericLiteral:
                 return get_numeric_literal_type(node.numeric_literal.str);
+            case AstNodeType::BooleanLiteral:
+                return get_builtin_type("bool");
             case AstNodeType::UnaryOperation:
                 // TODO: Check operation
                 return type_check_expression_node(ast, ast->nodes[node.unary_operation.operand]);

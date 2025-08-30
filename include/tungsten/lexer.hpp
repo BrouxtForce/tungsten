@@ -33,6 +33,9 @@ namespace tungsten::lexer
         Return,
         Discard,
 
+        True,
+        False,
+
         Const
     };
 
