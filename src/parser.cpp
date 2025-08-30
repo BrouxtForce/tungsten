@@ -988,7 +988,7 @@ namespace tungsten::parser
 
         AstNode& function_node = ast_push_node(ast);
         function_node.node_type = AstNodeType::FunctionDeclaration;
-        function_node.function_declaration.return_type = consume_name(ast->lexer_info);
+        function_node.function_declaration.return_type_name = consume_name(ast->lexer_info);
         function_node.function_declaration.name = consume_name(ast->lexer_info);
 
         uint32_t function_node_index = ast->nodes.size() - 1;
@@ -1173,7 +1173,7 @@ namespace tungsten::parser
                 break;
 
             case AstNodeType::FunctionDeclaration:
-                std::cout << "function_declaration " << node.function_declaration.return_type << ' ' << node.function_declaration.name;
+                std::cout << "function_declaration " << node.function_declaration.return_type_name << ' ' << node.function_declaration.name;
                 print_ast_nodes(node.function_declaration.argument_nodes);
                 print_ast_node(ast, node.function_declaration.body, indent + 1);
                 break;

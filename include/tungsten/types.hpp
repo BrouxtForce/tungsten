@@ -6,7 +6,7 @@ namespace tungsten::types
 {
     enum ScalarType : uint8_t
     {
-        None, Bool, Half, Float, Uint, Int
+        None, Bool, Half, Float, Uint, Int, MaxValue = Int
     };
 
     struct Type;
@@ -49,8 +49,15 @@ namespace tungsten::types
             UserType user_type;
         };
 
+        bool is_valid_builtin() const;
+        bool is_scalar() const;
+        bool is_vector() const;
+        bool is_matrix() const;
+
         std::string name() const;
     };
+
+    const Type* get_type(std::string_view type_name);
 
     void type_check(const parser::Ast* ast);
 }

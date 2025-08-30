@@ -104,7 +104,7 @@ namespace tungsten::parser
 
     struct AstNodeFunctionDeclaration
     {
-        std::string_view return_type;
+        std::string_view return_type_name;
         std::string_view name;
         IndexedSpan<uint32_t> argument_nodes;
         uint32_t body;

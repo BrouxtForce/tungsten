@@ -1,5 +1,6 @@
 #include "tungsten/converter.hpp"
 #include "tungsten/parser.hpp"
+#include "tungsten/types.hpp"
 
 #include <cassert>
 
@@ -22,6 +23,64 @@ namespace tungsten::converter
         }
 
         return std::string_view(indent_string).substr(0, target_indent);
+    }
+
+    std::string_view get_msl_type_name(std::string_view type_name)
+    {
+        // NOTE: Eventually, types will be added that are not directly equivalent to the MSL output
+        return type_name;
+    }
+
+    std::string get_wgsl_type_name(std::string_view type_name)
+    {
+        const types::Type* type = types::get_type(type_name);
+        if (type->kind != types::TypeKind::Builtin)
+        {
+            return type->name();
+        }
+
+        if (type->is_scalar())
+        {
+            switch (type->builtin_type.scalar)
+            {
+                case types::ScalarType::Bool:  return "bool";
+                case types::ScalarType::Half:  return "f16";
+                case types::ScalarType::Float: return "f32";
+                case types::ScalarType::Uint:  return "u32";
+                case types::ScalarType::Int:   return "i32";
+                default:
+                    assert(false);
+            }
+        }
+
+        if (type->is_vector())
+        {
+            std::string num_components_str = std::to_string(static_cast<int>(type->builtin_type.count_x));
+            switch (type->builtin_type.scalar)
+            {
+                case types::ScalarType::Bool:  return "vec" + num_components_str + "<bool>";
+                case types::ScalarType::Half:  return "vec" + num_components_str + "h";
+                case types::ScalarType::Float: return "vec" + num_components_str + "f";
+                case types::ScalarType::Uint:  return "vec" + num_components_str + "u";
+                case types::ScalarType::Int:   return "vec" + num_components_str + "i";
+                default:
+                    assert(false);
+            }
+        }
+
+        if (type->is_matrix())
+        {
+            std::string matrix_size_str = std::to_string(static_cast<int>(type->builtin_type.count_x));
+            switch (type->builtin_type.scalar)
+            {
+                case types::ScalarType::Half:  return "mat" + matrix_size_str + "x" + matrix_size_str + "h";
+                case types::ScalarType::Float: return "mat" + matrix_size_str + "x" + matrix_size_str + "f";
+                default:
+                    assert(false);
+            }
+        }
+
+        assert(false);
     }
 
     bool msl_is_builtin_attribute(const Attribute& attribute, AstNodeType node_type)
@@ -103,7 +162,7 @@ namespace tungsten::converter
         {
             const AstNode& child_node = ast->nodes[child_node_index];
             msl_output_attributes(child_node, stream);
-            stream << get_indent(1) << child_node.struct_member.type_name << ' ' << child_node.struct_member.name << ";\n";
+            stream << get_indent(1) << get_msl_type_name(child_node.struct_member.type_name) << ' ' << child_node.struct_member.name << ";\n";
         }
         stream << "};\n";
     }
@@ -117,7 +176,7 @@ namespace tungsten::converter
         {
             const AstNode& child_node = ast->nodes[child_node_index];
             wgsl_output_attributes(child_node, stream);
-            stream << get_indent(1) << child_node.struct_member.name << ": " << child_node.struct_member.type_name << ",\n";
+            stream << get_indent(1) << child_node.struct_member.name << ": " << get_wgsl_type_name(child_node.struct_member.type_name) << ",\n";
         }
         stream << "};\n";
     }
@@ -131,7 +190,7 @@ namespace tungsten::converter
         {
             const AstNode& member_node = ast->nodes[member_node_index];
             stream << get_indent(1);
-            stream << member_node.struct_member.type_name << ' ' << member_node.struct_member.name << ";\n";
+            stream << get_msl_type_name(member_node.struct_member.type_name) << ' ' << member_node.struct_member.name << ";\n";
         }
         stream << "}& constant " << node.struct_declaration.name;
         stream << " [[buffer(" << node.struct_declaration.binding << ")]];\n";
@@ -146,7 +205,7 @@ namespace tungsten::converter
         {
             const AstNode& child_node = ast->nodes[child_node_index];
             wgsl_output_attributes(child_node, stream);
-            stream << get_indent(1) << child_node.struct_member.name << ": " << child_node.struct_member.type_name << ",\n";
+            stream << get_indent(1) << child_node.struct_member.name << ": " << get_wgsl_type_name(child_node.struct_member.type_name) << ",\n";
         }
         stream << "};\n@group(" << node.struct_declaration.binding << ") @binding(0) var<uniform> ";
         stream << node.struct_declaration.name << ": _" << node.struct_declaration.name << ";\n";
@@ -163,7 +222,7 @@ namespace tungsten::converter
             const AstNode& member_node = ast->nodes[member_node_index];
 
             stream << get_indent(1);
-            stream << member_node.struct_member.type_name << ' ' << member_node.struct_member.name;
+            stream << get_msl_type_name(member_node.struct_member.type_name) << ' ' << member_node.struct_member.name;
             stream << " [[attribute(" << attribute << ")]];\n";
             attribute++;
         }
@@ -182,7 +241,7 @@ namespace tungsten::converter
             const AstNode& child_node = ast->nodes[child_node_index];
             wgsl_output_attributes(child_node, stream);
             stream << get_indent(1) << "@location(" << member_location << ") ";
-            stream << child_node.struct_member.name << ": " << child_node.struct_member.type_name << ",\n";
+            stream << child_node.struct_member.name << ": " << get_wgsl_type_name(child_node.struct_member.type_name) << ",\n";
             member_location++;
         }
         stream << "};\n";
@@ -268,7 +327,7 @@ namespace tungsten::converter
         if (node.variable_declaration.is_top_level) stream << "constant ";
         if (node.variable_declaration.is_const) stream << "const ";
 
-        stream << node.variable_declaration.type_name << ' ' << node.variable_declaration.name;
+        stream << get_msl_type_name(node.variable_declaration.type_name) << ' ' << node.variable_declaration.name;
 
         if (node.variable_declaration.is_array_declaration)
         {
@@ -314,7 +373,7 @@ namespace tungsten::converter
 
         if (node.variable_declaration.is_array_declaration)
         {
-            stream << node.variable_declaration.name << ": array<" << node.variable_declaration.type_name;
+            stream << node.variable_declaration.name << ": array<" << get_wgsl_type_name(node.variable_declaration.type_name);
             stream << ", " << node.variable_declaration.array_size_str << ">(";
 
             bool is_first_expression = true;
@@ -331,7 +390,7 @@ namespace tungsten::converter
             return;
         }
 
-        stream << node.variable_declaration.name << ": " << node.variable_declaration.type_name;
+        stream << node.variable_declaration.name << ": " << get_wgsl_type_name(node.variable_declaration.type_name);
 
         if (node.variable_declaration.expression != 0)
         {
@@ -524,7 +583,7 @@ namespace tungsten::converter
         {
             stream << '\n';
         }
-        stream << node.function_declaration.return_type << ' ' << node.function_declaration.name << "(";
+        stream << get_msl_type_name(node.function_declaration.return_type_name) << ' ' << node.function_declaration.name << "(";
 
         bool is_first_argument = true;
         for (uint32_t argument_node_index : node.function_declaration.argument_nodes)
@@ -538,7 +597,7 @@ namespace tungsten::converter
             {
                 stream << "[[stage_in]] ";
             }
-            stream << argument_node.function_argument.type_name << ' ' << argument_node.function_argument.name;
+            stream << get_msl_type_name(argument_node.function_argument.type_name) << ' ' << argument_node.function_argument.name;
         }
 
         stream << ") ";
@@ -563,10 +622,10 @@ namespace tungsten::converter
 
             const AstNode& argument_node = ast->nodes[argument_node_index];
             wgsl_output_attributes(argument_node, stream);
-            stream << argument_node.function_argument.name << ": " << argument_node.function_argument.type_name;
+            stream << argument_node.function_argument.name << ": " << get_wgsl_type_name(argument_node.function_argument.type_name);
         }
 
-        stream << ") -> " << node.function_declaration.return_type << ' ';
+        stream << ") -> " << get_wgsl_type_name(node.function_declaration.return_type_name) << ' ';
         output_function_body(ast, ast->nodes[node.function_declaration.body], stream, 0, Backend::WGSL);
         stream << '\n';
     }
@@ -714,9 +773,11 @@ namespace tungsten::converter
 
     void to_wgsl(const Ast* ast, std::ostream& stream)
     {
+        bool is_first_node = true;
         for (uint32_t root_node_index : ast->root_nodes)
         {
-            stream << '\n';
+            if (!is_first_node) stream << '\n';
+            is_first_node = false;
             output_root_node(ast, ast->nodes[root_node_index], stream, Backend::WGSL);
         }
     }

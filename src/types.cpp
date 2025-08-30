@@ -18,6 +18,57 @@ namespace tungsten::types
     static std::vector<TypeNamePair> variable_stack;
     static const Type NULL_TYPE { .kind = TypeKind::None };
 
+    bool Type::is_valid_builtin() const
+    {
+        if (kind != TypeKind::Builtin)
+        {
+            return false;
+        }
+
+        if (builtin_type.scalar <= ScalarType::None || builtin_type.scalar > ScalarType::MaxValue)
+        {
+            return false;
+        }
+
+        // Scalar types
+        if (builtin_type.count_x == 1 && builtin_type.count_y == 1)
+        {
+            return true;
+        }
+
+        // Vector types
+        if (builtin_type.count_x > 1 && builtin_type.count_x <= 4 && builtin_type.count_y == 1)
+        {
+            return true;
+        }
+
+        // Matrix types (only square matrices are supported)
+        if (builtin_type.count_x > 1 && builtin_type.count_x <= 4 && builtin_type.count_x == builtin_type.count_y)
+        {
+            return builtin_type.scalar == ScalarType::Half || builtin_type.scalar == ScalarType::Float;
+        }
+
+        return false;
+    }
+
+    bool Type::is_scalar() const
+    {
+        assert(is_valid_builtin());
+        return builtin_type.count_x == 1;
+    }
+
+    bool Type::is_vector() const
+    {
+        assert(is_valid_builtin());
+        return builtin_type.count_x > 1 && builtin_type.count_y == 1;
+    }
+
+    bool Type::is_matrix() const
+    {
+        assert(is_valid_builtin());
+        return builtin_type.count_y > 1;
+    }
+
     std::string Type::name() const
     {
         if (kind == TypeKind::None)
@@ -26,6 +77,8 @@ namespace tungsten::types
         }
         if (kind == TypeKind::Builtin)
         {
+            assert(is_valid_builtin());
+
             std::string output;
             switch (builtin_type.scalar)
             {
@@ -37,15 +90,12 @@ namespace tungsten::types
                 default:
                     assert(false);
             }
-            assert(builtin_type.count_x >= 1 && builtin_type.count_x <= 4);
-            assert(builtin_type.count_y >= 1 && builtin_type.count_y <= 4);
             if (builtin_type.count_x > 1)
             {
                 output += static_cast<char>(builtin_type.count_x + '0');
             }
             if (builtin_type.count_y > 1)
             {
-                assert(builtin_type.count_x > 1);
                 output += 'x';
                 output += static_cast<char>(builtin_type.count_y + '0');
             }
@@ -132,6 +182,8 @@ namespace tungsten::types
             return &NULL_TYPE;
         }
 
+        assert(type.is_valid_builtin());
+
         const Type* output_type = &type_list.emplace_back(type);
         name_type_map.insert({ type_name, output_type });
         return output_type;
@@ -203,20 +255,20 @@ namespace tungsten::types
         function_type.kind = TypeKind::Function;
         function_type.user_type.return_type = &NULL_TYPE;
 
-        auto return_type_it = name_type_map.find(node.function_declaration.return_type);
+        auto return_type_it = name_type_map.find(node.function_declaration.return_type_name);
         if (return_type_it != name_type_map.end())
         {
             function_type.user_type.return_type = return_type_it->second;
         }
         else
         {
-            function_type.user_type.return_type = get_builtin_type(node.function_declaration.return_type);
+            function_type.user_type.return_type = get_builtin_type(node.function_declaration.return_type_name);
         }
 
         if (function_type.user_type.return_type == &NULL_TYPE)
         {
             error::report(
-                "Unknown return type '" + std::string(node.function_declaration.return_type) + "'",
+                "Unknown return type '" + std::string(node.function_declaration.return_type_name) + "'",
                 node.byte_offset, node.byte_length
             );
             return &NULL_TYPE;
