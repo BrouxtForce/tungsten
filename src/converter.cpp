@@ -373,8 +373,8 @@ namespace tungsten::converter
 
         if (node.variable_declaration.is_array_declaration)
         {
-            stream << node.variable_declaration.name << ": array<" << get_wgsl_type_name(node.variable_declaration.type_name);
-            stream << ", " << node.variable_declaration.array_size_str << ">(";
+            stream << node.variable_declaration.name << " = array<" << get_wgsl_type_name(node.variable_declaration.type_name);
+            stream << ", " << node.variable_declaration.array_size_str << ">(\n";
 
             bool is_first_expression = true;
             for (uint32_t expression_node_index : node.variable_declaration.array_expressions)
@@ -653,6 +653,12 @@ namespace tungsten::converter
                 backend == Backend::MSL ?
                     msl_output_function_declaration(ast, node, stream) :
                     wgsl_output_function_declaration(ast, node, stream);
+                break;
+            case AstNodeType::VariableDeclaration:
+                backend == Backend::MSL ?
+                    msl_output_variable_declaration(ast, node, stream, 0) :
+                    wgsl_output_variable_declaration(ast, node, stream, 0);
+                stream << ";\n";
                 break;
             default:
                 assert(false && "Invalid AstNodeType");

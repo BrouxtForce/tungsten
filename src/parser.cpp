@@ -497,7 +497,7 @@ namespace tungsten::parser
                     }
                     if (token.punc == '[')
                     {
-                        push_source_location(ast);
+                        push_source_location(ast->nodes[left_operand].byte_offset);
 
                         AstNode& array_index_node = ast_push_node(ast);
                         array_index_node.node_type = AstNodeType::ArrayIndex;

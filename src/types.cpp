@@ -13,6 +13,7 @@ namespace tungsten::types
     using parser::Ast, parser::AstNode, parser::AstNodeType;
 
     static std::unordered_map<std::string_view, const Type*> name_type_map;
+    static std::unordered_map<std::string_view, const Type*> array_name_type_map;
     static std::deque<Type> type_list;
     static std::vector<TypeNamePair> type_name_pairs;
     static std::vector<TypeNamePair> variable_stack;
@@ -69,6 +70,12 @@ namespace tungsten::types
         return builtin_type.count_y > 1;
     }
 
+    bool Type::is_array() const
+    {
+        assert(is_valid_builtin());
+        return builtin_type.is_array;
+    }
+
     std::string Type::name() const
     {
         if (kind == TypeKind::None)
@@ -98,6 +105,10 @@ namespace tungsten::types
             {
                 output += 'x';
                 output += static_cast<char>(builtin_type.count_y + '0');
+            }
+            if (builtin_type.is_array)
+            {
+                output += "[]";
             }
             return output;
         }
@@ -197,6 +208,27 @@ namespace tungsten::types
             return it->second;
         }
         return get_builtin_type(type_name);
+    }
+
+    const Type* get_array_type(std::string_view type_name)
+    {
+        auto it = array_name_type_map.find(type_name);
+        if (it != array_name_type_map.end())
+        {
+            return it->second;
+        }
+
+        const Type* type = get_builtin_type(type_name);
+        if (type == &NULL_TYPE)
+        {
+            return &NULL_TYPE;
+        }
+
+        Type& array_type = type_list.emplace_back(*type);
+        array_type.builtin_type.is_array = true;
+
+        array_name_type_map.insert({ type_name, &array_type });
+        return &array_type;
     }
 
     void create_and_insert_struct_type(const Ast* ast, const AstNode& node)
@@ -481,6 +513,30 @@ namespace tungsten::types
         return &NULL_TYPE;
     }
 
+    const Type* type_check_array_index(const Ast* ast, const AstNode& node)
+    {
+        assert(node.node_type == AstNodeType::ArrayIndex);
+
+        const Type* array_type = type_check_variable_or_property_access(ast, ast->nodes[node.array_index.left]);
+        if (!array_type->is_valid_builtin() || !array_type->is_array())
+        {
+            const AstNode& indexed_node = ast->nodes[node.array_index.left];
+            error::report("Type being indexed is not an array", indexed_node.byte_offset, indexed_node.byte_length);
+            return &NULL_TYPE;
+        }
+
+        const Type* index_type = type_check_expression_node(ast, ast->nodes[node.array_index.right]);
+        if (!is_equivalent_type(index_type, get_builtin_type("int")) && !is_equivalent_type(index_type, get_builtin_type("uint")))
+        {
+            const AstNode& index_node = ast->nodes[node.array_index.right];
+            error::report("Index type must be int or uint", index_node.byte_offset, index_node.byte_length);
+        }
+
+        Type output_type = *array_type;
+        output_type.builtin_type.is_array = false;
+        return get_builtin_type(output_type.name());
+    }
+
     void type_check_expression(const Ast* ast, const AstNode& node, const Type* return_type);
 
     const Type* type_check_function_call(const Ast* ast, const AstNode& node)
@@ -516,9 +572,7 @@ namespace tungsten::types
         switch (node.node_type)
         {
             case AstNodeType::ArrayIndex:
-                // TODO
-                assert(false);
-                break;
+                return type_check_array_index(ast, node);
             case AstNodeType::NumericLiteral:
                 return get_numeric_literal_type(node.numeric_literal.str);
             case AstNodeType::BooleanLiteral:
@@ -560,17 +614,31 @@ namespace tungsten::types
             return;
         }
 
-        const Type* variable_type = get_type(node.variable_declaration.type_name);
+        const Type* variable_type = node.variable_declaration.is_array_declaration ?
+            get_array_type(node.variable_declaration.type_name) :
+            get_type(node.variable_declaration.type_name);
+
         if (variable_type == &NULL_TYPE)
         {
             error::report("Unknown variable type", node.byte_offset, node.byte_length);
             return;
         }
-
         scope_add_variable(variable_type, node.variable_declaration.name);
-        if (node.variable_declaration.expression != 0)
+
+        if (!node.variable_declaration.is_array_declaration)
         {
-            type_check_expression(ast, ast->nodes[node.variable_declaration.expression], variable_type);
+            if (node.variable_declaration.expression != 0)
+            {
+                type_check_expression(ast, ast->nodes[node.variable_declaration.expression], variable_type);
+            }
+        }
+        else
+        {
+            const Type* underlying_type = get_type(node.variable_declaration.type_name);
+            for (uint32_t expression_node_index : node.variable_declaration.array_expressions)
+            {
+                type_check_expression(ast, ast->nodes[expression_node_index], underlying_type);
+            }
         }
     }
 
@@ -681,6 +749,9 @@ namespace tungsten::types
                 type_check_function_body(ast, ast->nodes[node.function_declaration.body], function_type);
                 break;
             }
+            case AstNodeType::VariableDeclaration:
+                scope_add_variable_declaration_and_type_check(ast, node);
+                break;
             default:
                 assert(false);
         }
@@ -692,5 +763,7 @@ namespace tungsten::types
         {
             type_check_root_node(ast, ast->nodes[root_node_index]);
         }
+        pop_variable_scope();
+        assert(variable_stack.empty());
     }
 }
