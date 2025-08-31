@@ -7,6 +7,8 @@
 #include <unordered_map>
 #include <array>
 #include <ranges>
+#include <bit>
+#include <utility>
 
 namespace tungsten::types
 {
@@ -16,6 +18,7 @@ namespace tungsten::types
     static std::deque<Type> type_list;
     static std::vector<TypeNamePair> type_name_pairs;
     static std::vector<TypeNamePair> variable_stack;
+    static std::vector<TypeTemplate> type_templates;
     static const Type NULL_TYPE { .kind = TypeKind::None };
 
     bool Type::is_valid_builtin() const
@@ -25,7 +28,7 @@ namespace tungsten::types
             return false;
         }
 
-        if (builtin_type.scalar <= ScalarType::None || builtin_type.scalar > ScalarType::MaxValue)
+        if (!std::has_single_bit(std::to_underlying(builtin_type.scalar)) || builtin_type.scalar > ScalarType::MaxValue)
         {
             return false;
         }
@@ -129,6 +132,188 @@ namespace tungsten::types
             }
         };
         return type.name();
+    }
+
+    void populate_library_functions()
+    {
+        struct LibraryFunctionDefinition
+        {
+            std::string_view name;
+            TypeTemplate return_type_template;
+            std::array<TypeTemplate, 4> parameter_type_templates;
+        };
+
+        constexpr TypeTemplate None {};
+        constexpr TypeTemplate ScalarUint {
+            .allowed_types = ScalarType::Uint,
+            .vector_components_mask = 0b0001
+        };
+        constexpr TypeTemplate ScalarBoolean {
+            .allowed_types = ScalarType::Bool,
+            .vector_components_mask = 0b0001
+        };
+        constexpr TypeTemplate Numerical {
+            .allowed_types = ScalarType::Half | ScalarType::Float | ScalarType::Uint | ScalarType::Int,
+            .vector_components_mask = 0b1111
+        };
+        constexpr TypeTemplate ScalarNumerical {
+            .allowed_types = Numerical.allowed_types,
+            .vector_components_mask = 0b0001
+        };
+        constexpr TypeTemplate Floating {
+            .allowed_types = ScalarType::Half | ScalarType::Float,
+            .vector_components_mask = 0b1111
+        };
+        constexpr TypeTemplate ScalarFloating {
+            .allowed_types = Floating.allowed_types,
+            .vector_components_mask = 0b0001
+        };
+        constexpr TypeTemplate VectorFloating {
+            .allowed_types = Floating.allowed_types,
+            .vector_components_mask = 0b1110
+        };
+        constexpr TypeTemplate VectorFloating3 {
+            .allowed_types = ScalarType::Float | ScalarType::Half,
+            .vector_components_mask = 0b0100
+        };
+        constexpr TypeTemplate Integer {
+            .allowed_types = ScalarType::Uint | ScalarType::Int,
+            .vector_components_mask = 0b1111
+        };
+        constexpr TypeTemplate Boolean {
+            .allowed_types = ScalarType::Bool,
+            .vector_components_mask = 0b1111
+        };
+
+        constexpr static std::array<LibraryFunctionDefinition, 53> library_function_definitions {
+            LibraryFunctionDefinition
+            { "abs",   Numerical, { Numerical } },
+            { "clamp", Numerical, { Numerical, Numerical, Numerical } },
+            { "max",   Numerical, { Numerical, Numerical } },
+            { "min",   Numerical, { Numerical, Numerical } },
+
+            // Trigonometric functions
+            { "sin",  Floating, { Floating } },
+            { "cos",  Floating, { Floating } },
+            { "tan",  Floating, { Floating } },
+            { "asin", Floating, { Floating } },
+            { "acos", Floating, { Floating } },
+            { "atan", Floating, { Floating } },
+
+            // Hyperbolic functions
+            { "sinh",  Floating, { Floating } },
+            { "cosh",  Floating, { Floating } },
+            { "tanh",  Floating, { Floating } },
+            { "acosh", Floating, { Floating } },
+            { "asinh", Floating, { Floating } },
+            { "atanh", Floating, { Floating } },
+
+            // Other floating-point functions
+            { "log",  Floating, { Floating } },
+            { "log2", Floating, { Floating } },
+            { "exp",  Floating, { Floating } },
+            { "exp2", Floating, { Floating } },
+
+            { "sign",  Floating, { Floating } },
+            { "fract", Floating, { Floating } },
+            { "trunc", Floating, { Floating } },
+            { "ceil",  Floating, { Floating } },
+            { "floor", Floating, { Floating } },
+            { "round", Floating, { Floating } },
+
+            { "sqrt",  Floating, { Floating } },
+            { "rsqrt", Floating, { Floating } },
+
+            { "saturate",   Floating, { Floating } },
+            { "mix",        Floating, { Floating, Floating, Floating } },
+            { "fma",        Floating, { Floating, Floating, Floating } },
+            { "smoothstep", Floating, { Floating, Floating, Floating } },
+            { "step",       Floating, { Floating, Floating } },
+            { "ldexp",      Floating, { Floating, Integer } },
+
+            // Derivative functions
+            { "dfdx",   Floating, { Floating } },
+            { "dfdy",   Floating, { Floating } },
+            { "fwidth", Floating, { Floating } },
+
+            // Vector functions
+            { "cross",     VectorFloating3, { VectorFloating3, VectorFloating3 } },
+            { "distance",  ScalarFloating, { Floating, Floating } },
+            { "dot",       ScalarNumerical, { Numerical, Numerical } },
+            { "length",    ScalarFloating, { Floating } },
+            { "normalize", VectorFloating, { VectorFloating } },
+            { "reflect",   VectorFloating, { VectorFloating, VectorFloating } },
+            { "refract",   VectorFloating, { VectorFloating, VectorFloating } },
+
+            // Integer functions
+            { "clz",      Integer, { Integer } },
+            { "ctz",      Integer, { Integer } },
+            { "popcount", Integer, { Integer } },
+
+            { "reverse_bits", Integer, { Integer } },
+            { "extract_bits", Integer, { Integer, ScalarUint, ScalarUint } },
+            { "insert_bits",  Integer, { Integer, Integer, ScalarUint, ScalarUint } },
+
+            // Logical functions
+            { "all",    ScalarBoolean, { Boolean } },
+            { "any",    ScalarBoolean, { Boolean } },
+            { "select", Floating, { Floating, Floating, Boolean } }
+        };
+
+        for (const LibraryFunctionDefinition& definition : library_function_definitions)
+        {
+            Type* type = &type_list.emplace_back(Type{});
+            type->kind = TypeKind::LibraryFunction;
+            type->library_function_type.name = definition.name;
+
+            type->library_function_type.parameters = {
+                .vector = &type_templates,
+                .index = static_cast<uint32_t>(type_templates.size())
+            };
+
+            std::array<TypeTemplate, 2> used_templates{};
+            for (const TypeTemplate& type_template : definition.parameter_type_templates)
+            {
+                if (type_template == None)
+                {
+                    break;
+                }
+
+                TypeTemplate& out_type_template = type_templates.emplace_back();
+                out_type_template = type_template;
+
+                if (used_templates[0] == None || (out_type_template.allowed_types == used_templates[0].allowed_types &&
+                    out_type_template.vector_components_mask == used_templates[0].vector_components_mask))
+                {
+                    out_type_template.template_index = 0;
+                    used_templates[0] = out_type_template;
+                }
+                else
+                {
+                    if (used_templates[1] != None)
+                    {
+                        assert(
+                            out_type_template.allowed_types == used_templates[1].allowed_types &&
+                            out_type_template.vector_components_mask == used_templates[1].vector_components_mask
+                        );
+                    }
+                    out_type_template.template_index = 1;
+                    used_templates[1] = out_type_template;
+                }
+            }
+
+            type->library_function_type.parameters.size = type_templates.size() - type->library_function_type.parameters.index;
+
+            type->library_function_type.return_type_template_index = 1;
+            if (definition.return_type_template.allowed_types == used_templates[0].allowed_types)
+            {
+                type->library_function_type.return_type_template_index = 0;
+            }
+
+            type->library_function_type.return_type_is_scalar = (definition.return_type_template.vector_components_mask == 0b0001);
+
+            name_type_map.insert({ std::string(definition.name), type });
+        }
     }
 
     const Type* get_builtin_type(std::string_view type_name)
@@ -592,6 +777,97 @@ namespace tungsten::types
 
     void type_check_expression(const Ast* ast, const AstNode& node, const Type* return_type);
 
+    const Type* type_check_library_function_call(const Ast* ast, const AstNode& node, const Type* function_type)
+    {
+        assert(node.node_type == AstNodeType::FunctionCall);
+
+        struct ScalarVectorType
+        {
+            ScalarType scalar_type;
+            uint8_t num_components;
+        };
+
+        constexpr uint32_t MAX_TEMPLATE_INDICES = 2;
+        std::array<ScalarVectorType, MAX_TEMPLATE_INDICES> template_index_type_map{};
+
+        if (function_type->library_function_type.parameters.size != node.function_call.argument_nodes.size)
+        {
+            error::report("Unexpected number of arguments", node.byte_offset, node.byte_length);
+            return &NULL_TYPE;
+        }
+
+        bool had_error = false;
+        for (uint32_t i = 0; i < node.function_call.argument_nodes.size; i++)
+        {
+            const AstNode& argument_node = ast->nodes[node.function_call.argument_nodes[i]];
+            const Type* argument_type = type_check_expression_node(ast, argument_node);
+
+            if (!argument_type->is_valid_builtin() || argument_type->is_matrix())
+            {
+                error::report("Library function argument must be a scalar or vector type", argument_node.byte_offset, argument_node.byte_length);
+                had_error = true;
+                continue;
+            }
+
+            const TypeTemplate& parameter_template = function_type->library_function_type.parameters[i];
+            if ((parameter_template.allowed_types & argument_type->builtin_type.scalar) &&
+                (parameter_template.vector_components_mask & (1 << (argument_type->builtin_type.count_x - 1))))
+            {
+                ScalarVectorType& argument_type_template = template_index_type_map[parameter_template.template_index];
+                if (argument_type_template.scalar_type == ScalarType::None)
+                {
+                    argument_type_template.scalar_type = argument_type->builtin_type.scalar;
+                    argument_type_template.num_components = argument_type->builtin_type.count_x;
+                    continue;
+                }
+                if (argument_type_template.scalar_type != argument_type->builtin_type.scalar ||
+                    argument_type_template.num_components != argument_type->builtin_type.count_x)
+                {
+                    Type expected_type {
+                        .kind = TypeKind::Builtin,
+                        .builtin_type = {
+                            .scalar = argument_type_template.scalar_type,
+                            .count_x = argument_type_template.num_components,
+                            .count_y = 1
+                        }
+                    };
+
+                    error::report(
+                        "Expected '" + expected_type.name() + "', but got '" + argument_type->name() + "'",
+                        argument_node.byte_offset, argument_node.byte_length
+                    );
+                    had_error = true;
+                }
+                continue;
+            }
+
+            // TODO: List allowed types
+            error::report("Invalid type", argument_node.byte_offset, argument_node.byte_length);
+            had_error = true;
+        }
+
+        if (had_error)
+        {
+            return &NULL_TYPE;
+        }
+
+        uint8_t return_template_index = function_type->library_function_type.return_type_template_index;
+
+        Type output_type {
+            .kind = TypeKind::Builtin,
+            .builtin_type = {
+                .scalar = template_index_type_map[return_template_index].scalar_type,
+                .count_x = function_type->library_function_type.return_type_is_scalar ?
+                    static_cast<uint8_t>(1) :
+                    template_index_type_map[return_template_index].num_components,
+                .count_y = 1
+            }
+        };
+        assert(output_type.is_valid_builtin());
+
+        return get_builtin_type(output_type.name());
+    }
+
     const Type* type_check_function_call(const Ast* ast, const AstNode& node)
     {
         assert(node.node_type == AstNodeType::FunctionCall);
@@ -640,6 +916,11 @@ namespace tungsten::types
             }
 
             return function_type;
+        }
+
+        if (function_type->kind == TypeKind::LibraryFunction)
+        {
+            return type_check_library_function_call(ast, node, function_type);
         }
 
         if (function_type->kind != TypeKind::Function)
@@ -875,6 +1156,11 @@ namespace tungsten::types
 
     void type_check(const Ast *ast)
     {
+        if (type_list.empty())
+        {
+            populate_library_functions();
+        }
+
         for (uint32_t root_node_index : ast->root_nodes)
         {
             type_check_root_node(ast, ast->nodes[root_node_index]);
