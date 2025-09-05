@@ -71,10 +71,10 @@ namespace tungsten::parser
         }
     }
 
-    bool try_consume_operator(lexer::LexerInfo* info, std::string_view op)
+    bool try_consume_operator(lexer::LexerInfo* info, lexer::Operator op)
     {
         lexer::Token token = lexer::peek_next_token(info);
-        if (token.type == lexer::TokenType::Operator && token.str == op)
+        if (token.type == lexer::TokenType::Operator && token.op == op)
         {
             lexer::get_next_token(info);
             return true;
@@ -82,7 +82,7 @@ namespace tungsten::parser
         return false;
     }
 
-    void consume_operator(lexer::LexerInfo* info, std::string_view op)
+    void consume_operator(lexer::LexerInfo* info, lexer::Operator op)
     {
         if (try_consume_operator(info, op))
         {
@@ -319,16 +319,21 @@ namespace tungsten::parser
     }
 
     [[nodiscard]]
-    uint32_t parse_binary_operation(Ast* ast, std::string_view operation, uint32_t left_operand, uint32_t right_operand)
+    uint32_t parse_binary_operation(Ast* ast, lexer::Token operation_token, uint32_t left_operand, uint32_t right_operand)
     {
-        constexpr std::array<std::string_view, 16> legal_binary_operations {
-            "+", "-", "*", "/",
-            "<", "<=", "==", ">=", ">",
-            "&&", "||", "&", "|", "^", "<<", ">>"
+        assert(operation_token.type == lexer::TokenType::Operator);
+        lexer::Operator operation = operation_token.op;
+
+        using enum lexer::Operator;
+        constexpr std::array<lexer::Operator, 17> legal_binary_operations {
+            Add, Sub, Mul, Div, Mod,
+            Less, LessEqual, Equal, GreaterEqual, Greater,
+            LogicalAnd, LogicalOr, BitwiseAnd, BitwiseOr, BitwiseXor,
+            BitwiseLeftShift, BitwiseRightShift
         };
 
         bool is_legal_operation = false;
-        for (std::string_view legal_operation : legal_binary_operations)
+        for (lexer::Operator legal_operation : legal_binary_operations)
         {
             if (operation == legal_operation)
             {
@@ -337,7 +342,10 @@ namespace tungsten::parser
         }
         if (!is_legal_operation)
         {
-            error::report("Illegal operation '" + std::string(operation) + "'", 0, 0);
+            error::report(
+                "Illegal operation '" + std::string(operator_to_string(operation)) + "'",
+                operation_token.byte_offset, operation_token.byte_length
+            );
         }
 
         uint32_t byte_offset = ast->nodes[left_operand].byte_offset;
@@ -355,15 +363,16 @@ namespace tungsten::parser
     [[nodiscard]]
     uint32_t parse_unary_operation(Ast* ast, lexer::Token operation_token, uint32_t operand)
     {
-        constexpr std::array<std::string_view, 4> legal_unary_operations {
-            "+", "-", "~", "!"
+        constexpr std::array<lexer::Operator, 4> legal_unary_operations {
+            lexer::Operator::Add, lexer::Operator::Sub,
+            lexer::Operator::BitwiseNot, lexer::Operator::LogicalNot
         };
 
         assert(operation_token.type == lexer::TokenType::Operator);
-        std::string_view operation = operation_token.str;
+        lexer::Operator operation = operation_token.op;
 
         bool is_legal_operation = false;;
-        for (std::string_view legal_operation : legal_unary_operations)
+        for (lexer::Operator legal_operation : legal_unary_operations)
         {
             if (operation == legal_operation)
             {
@@ -372,7 +381,10 @@ namespace tungsten::parser
         }
         if (!is_legal_operation)
         {
-            error::report("Illegal operation '" + std::string(operation) + "'", 0, 0);
+            error::report(
+                "Illegal operation '" + std::string(operator_to_string(operation)) + "'",
+                operation_token.byte_offset, operation_token.byte_length
+            );
         }
 
         uint32_t byte_offset = operation_token.byte_offset;
@@ -428,8 +440,11 @@ namespace tungsten::parser
         Unary
     };
 
-    Precedence get_operator_precedence(std::string_view op, bool is_unary_operator)
+    Precedence get_operator_precedence(lexer::Operator operation, bool is_unary_operator)
     {
+        // TODO: Replace string comparisons with switch statement
+        std::string_view op = operator_to_string(operation);
+
         if (is_unary_operator) return Precedence::Unary;
 
         if (op == "||") return Precedence::LogicalOr;
@@ -468,7 +483,7 @@ namespace tungsten::parser
                     left_operand = parse_variable_or_function_call(ast);
                     continue;
                 case lexer::TokenType::Operator: {
-                    Precedence operator_precedence = get_operator_precedence(token.str, !should_consume_binary_operation);
+                    Precedence operator_precedence = get_operator_precedence(token.op, !should_consume_binary_operation);
                     if (operator_precedence <= precedence)
                     {
                         return left_operand;
@@ -476,7 +491,7 @@ namespace tungsten::parser
                     lexer::get_next_token(ast->lexer_info);
 
                     left_operand = should_consume_binary_operation ?
-                        parse_binary_operation(ast, token.str, left_operand, parse_expression(ast, operator_precedence)) :
+                        parse_binary_operation(ast, token, left_operand, parse_expression(ast, operator_precedence)) :
                         parse_unary_operation(ast, token, parse_expression(ast, operator_precedence));
 
                     continue;
@@ -652,7 +667,7 @@ namespace tungsten::parser
 
             consume_punctuation(ast->lexer_info, '}');
         }
-        else if (try_consume_operator(ast->lexer_info, "="))
+        else if (try_consume_operator(ast->lexer_info, lexer::Operator::Assign))
         {
             decl_node.variable_declaration.expression = parse_expression(ast);
         }
@@ -705,22 +720,25 @@ namespace tungsten::parser
         }
         else
         {
-            std::array<std::string_view, 11> valid_assignment_operators {
-                "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<=", ">>=", "="
+            using enum lexer::Operator;
+            std::array<lexer::Operator, 11> valid_assignment_operators {
+                AssignAdd, AssignSub, AssignMul, AssignDiv, AssignMod,
+                AssignBitwiseAnd, AssignBitwiseOr, AssignBitwiseXor,
+                AssignBitwiseLeftShift, AssignBitwiseRightShift, Assign
             };
-            for (std::string_view op : valid_assignment_operators)
+            for (lexer::Operator op : valid_assignment_operators)
             {
-                if (op == token.str)
+                if (op == token.op)
                 {
-                    assignment_node.variable_assignment.operation = token.str;
+                    assignment_node.variable_assignment.operation = token.op;
                     assignment_node.variable_assignment.expression = parse_expression(ast);
                     was_valid_operator = true;
                 }
             }
 
-            if (token.str == "++" || token.str == "--")
+            if (token.op == PostfixIncrement || token.op == PostfixDecrement)
             {
-                assignment_node.variable_assignment.operation = token.str;
+                assignment_node.variable_assignment.operation = token.op;
                 was_valid_operator = true;
             }
         }
@@ -1203,7 +1221,7 @@ namespace tungsten::parser
                 }
                 break;
             case AstNodeType::VariableAssignment:
-                std::cout << "variable_assignment " << node.variable_assignment.operation;
+                std::cout << "variable_assignment " << operator_to_string(node.variable_assignment.operation);
                 print_ast_node(ast, node.variable_assignment.variable_node, indent + 1);
                 print_ast_node(ast, node.variable_assignment.expression, indent + 1);
                 break;
@@ -1216,11 +1234,11 @@ namespace tungsten::parser
                 std::cout << "numeric_literal " << node.numeric_literal.str;
                 break;
             case AstNodeType::UnaryOperation:
-                std::cout << "unary_operation " << node.unary_operation.operation;
+                std::cout << "unary_operation " << operator_to_string(node.unary_operation.operation);
                 print_ast_node(ast, node.unary_operation.operand, indent + 1);
                 break;
             case AstNodeType::BinaryOperation:
-                std::cout << "binary_operation " << node.binary_operation.operation;
+                std::cout << "binary_operation " << operator_to_string(node.binary_operation.operation);
                 print_ast_node(ast, node.binary_operation.left, indent + 1);
                 print_ast_node(ast, node.binary_operation.right, indent + 1);
                 break;

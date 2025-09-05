@@ -1,5 +1,6 @@
 #include "tungsten/types.hpp"
 #include "tungsten/error.hpp"
+#include "tungsten/lexer.hpp"
 #include "tungsten/parser.hpp"
 
 #include <cassert>
@@ -646,14 +647,14 @@ namespace tungsten::types
         const Type* return_type = left_type;
 
         bool has_matching_operator = false;
-        if (node.binary_operation.operation == "=")
+        if (node.binary_operation.operation == lexer::Operator::Assign)
         {
             has_matching_operator = is_equivalent_type(left_type, right_type);
         }
         else if (left_type->is_valid_builtin() && right_type->is_valid_builtin())
         {
             has_matching_operator = is_equivalent_type(left_type, right_type);
-            if (node.binary_operation.operation == "*")
+            if (node.binary_operation.operation == lexer::Operator::Mul)
             {
                 if (left_type->is_vector() && right_type->is_matrix())
                 {
@@ -664,6 +665,16 @@ namespace tungsten::types
                 {
                     has_matching_operator = (left_type->builtin_type.count_y == right_type->builtin_type.count_x);
                     return_type = right_type;
+                }
+                if (left_type->is_scalar() && right_type->is_vector())
+                {
+                    has_matching_operator = true;
+                    return_type = right_type;
+                }
+                if (left_type->is_vector() && right_type->is_scalar())
+                {
+                    has_matching_operator = true;
+                    return_type = left_type;
                 }
             }
         }

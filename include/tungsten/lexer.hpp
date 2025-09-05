@@ -4,7 +4,7 @@
 
 namespace tungsten::lexer
 {
-    enum class TokenType
+    enum class TokenType : uint8_t
     {
         None,
 
@@ -16,7 +16,7 @@ namespace tungsten::lexer
         Operator
     };
 
-    enum class Keyword
+    enum class Keyword : uint8_t
     {
         None,
 
@@ -39,6 +39,29 @@ namespace tungsten::lexer
         Const
     };
 
+    enum class Operator : uint8_t
+    {
+        Add, Sub, Mul, Div, Mod,
+
+        AssignAdd, AssignSub, AssignMul, AssignDiv, AssignMod, Assign,
+
+        Less, LessEqual, Equal, GreaterEqual, Greater,
+
+        LogicalAnd, LogicalOr, LogicalNot,
+
+        BitwiseAnd, BitwiseOr, BitwiseNot, BitwiseXor,
+        BitwiseLeftShift, BitwiseRightShift,
+
+        AssignBitwiseAnd, AssignBitwiseOr, AssignBitwiseXor,
+        AssignBitwiseLeftShift, AssignBitwiseRightShift,
+
+        PostfixIncrement, PostfixDecrement,
+
+        EnumMemberCount
+    };
+
+    std::string_view operator_to_string(Operator op);
+
     struct Token
     {
         uint32_t byte_offset = 0;
@@ -48,6 +71,7 @@ namespace tungsten::lexer
         {
             std::string_view str;
             Keyword keyword;
+            Operator op;
             char punc;
         };
         TokenType type = TokenType::None;

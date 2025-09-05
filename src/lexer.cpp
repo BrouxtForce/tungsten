@@ -7,6 +7,57 @@
 
 namespace tungsten::lexer
 {
+    std::string_view operator_to_string(Operator op)
+    {
+        switch (op)
+        {
+            using enum Operator;
+            case Add: return "+";
+            case Sub: return "-";
+            case Mul: return "*";
+            case Div: return "/";
+            case Mod: return "%";
+
+            case AssignAdd: return "+=";
+            case AssignSub: return "-=";
+            case AssignMul: return "*=";
+            case AssignDiv: return "/=";
+            case AssignMod: return "%=";
+            case Assign:    return "=";
+
+            case Less:         return "<";
+            case LessEqual:    return "<=";
+            case Equal:        return "=";
+            case GreaterEqual: return ">=";
+            case Greater:      return ">";
+
+            case LogicalAnd: return "&&";
+            case LogicalOr:  return "||";
+            case LogicalNot: return "!";
+
+            case BitwiseAnd: return "&";
+            case BitwiseOr:  return "|";
+            case BitwiseNot: return "~";
+            case BitwiseXor: return "^";
+
+            case BitwiseLeftShift:  return "<<";
+            case BitwiseRightShift: return ">>";
+
+            case AssignBitwiseAnd: return "&=";
+            case AssignBitwiseOr:  return "|=";
+            case AssignBitwiseXor: return "^=";
+
+            case AssignBitwiseLeftShift:  return "<<=";
+            case AssignBitwiseRightShift: return ">>=";
+
+            case PostfixIncrement: return "++";
+            case PostfixDecrement: return "--";
+
+            default:
+                assert(false);
+        }
+    }
+
     std::string Token::to_string()
     {
         switch (type)
@@ -42,7 +93,7 @@ namespace tungsten::lexer
             case TokenType::Punctuation:
                 return (std::string)"[Punctuation '" + std::string(1, punc) + "']";
             case TokenType::Operator: {
-                return "[Operator " + (std::string)str + "]";
+                return "[Operator " + std::string(operator_to_string(op)) + "]";
             };
         }
         return "[Invalid Token]";
@@ -351,24 +402,27 @@ namespace tungsten::lexer
             "&", "|", "~", "^", "<<", ">>", "&=", "|=", "^=", "<<=", ">>=",
             "++", "--"
         };
+        static_assert(valid_operators.size() == (size_t)Operator::EnumMemberCount);
 
-        bool is_valid_operator = false;
-        for (std::string_view valid_operator : valid_operators)
+        int valid_operator_index = -1;
+        for (size_t i = 0; i < valid_operators.size(); i++)
         {
-            if (view == valid_operator)
+            if (view == valid_operators[i])
             {
-                is_valid_operator = true;
+                valid_operator_index = i;
                 break;
             }
         }
 
-        if (!is_valid_operator)
+        if (valid_operator_index == -1)
         {
             error::report("Invalid operator '" + (std::string)view + "'", out.byte_offset, out.byte_length);
         }
 
-        out.str = view;
+        out.op = (Operator)valid_operator_index;
         out.type = TokenType::Operator;
+
+        assert(operator_to_string(out.op) == view);
 
         return out;
     }

@@ -1,4 +1,5 @@
 #include "tungsten/converter.hpp"
+#include "tungsten/lexer.hpp"
 #include "tungsten/parser.hpp"
 #include "tungsten/types.hpp"
 
@@ -286,12 +287,12 @@ namespace tungsten::converter
                 stream << (node.boolean_literal.value ? "true" : "false");
                 break;
             case AstNodeType::UnaryOperation:
-                stream << node.unary_operation.operation;
+                stream << lexer::operator_to_string(node.unary_operation.operation);
                 output_expression(ast, ast->nodes[node.unary_operation.operand], stream);
                 break;
             case AstNodeType::BinaryOperation:
                 output_expression(ast, ast->nodes[node.binary_operation.left], stream);
-                stream << ' ' << node.binary_operation.operation << ' ';
+                stream << ' ' << operator_to_string(node.binary_operation.operation) << ' ';
                 output_expression(ast, ast->nodes[node.binary_operation.right], stream);
                 break;
             case AstNodeType::Variable:
@@ -409,11 +410,11 @@ namespace tungsten::converter
         if (node.variable_assignment.expression == 0)
         {
             // Increment/decrement operations
-            stream << node.variable_assignment.operation;
+            stream << operator_to_string(node.variable_assignment.operation);
             return;
         }
 
-        stream << ' ' << node.variable_assignment.operation << ' ';
+        stream << ' ' << operator_to_string(node.variable_assignment.operation) << ' ';
         output_expression(ast, ast->nodes[node.variable_assignment.expression], stream);
     }
 
@@ -427,11 +428,11 @@ namespace tungsten::converter
         if (node.variable_assignment.expression == 0)
         {
             // Increment/decrement operations
-            stream << node.variable_assignment.operation;
+            stream << operator_to_string(node.variable_assignment.operation);
             return;
         }
 
-        stream << ' ' << node.variable_assignment.operation << ' ';
+        stream << ' ' << operator_to_string(node.variable_assignment.operation) << ' ';
         output_expression(ast, ast->nodes[node.variable_assignment.expression], stream);
     }
 

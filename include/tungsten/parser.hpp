@@ -129,7 +129,7 @@ namespace tungsten::parser
 
     struct AstNodeVariableAssignment
     {
-        std::string_view operation;
+        lexer::Operator operation;
         uint32_t variable_node;
         uint32_t expression;
     };
@@ -152,13 +152,13 @@ namespace tungsten::parser
 
     struct AstNodeUnaryOperation
     {
-        std::string_view operation;
+        lexer::Operator operation;
         uint32_t operand;
     };
 
     struct AstNodeBinaryOperation
     {
-        std::string_view operation;
+        lexer::Operator operation;
         uint32_t left;
         uint32_t right;
     };
