@@ -186,7 +186,7 @@ namespace tungsten::types
             .vector_components_mask = 0b1111
         };
 
-        constexpr static std::array<LibraryFunctionDefinition, 53> library_function_definitions {
+        constexpr static std::array<LibraryFunctionDefinition, 54> library_function_definitions {
             LibraryFunctionDefinition
             { "abs",   Numerical, { Numerical } },
             { "clamp", Numerical, { Numerical, Numerical, Numerical } },
@@ -214,6 +214,7 @@ namespace tungsten::types
             { "log2", Floating, { Floating } },
             { "exp",  Floating, { Floating } },
             { "exp2", Floating, { Floating } },
+            { "pow",  Floating, { Floating, Floating } },
 
             { "sign",  Floating, { Floating } },
             { "fract", Floating, { Floating } },
@@ -619,6 +620,124 @@ namespace tungsten::types
         return remove_const(a) == remove_const(b) && a != &NULL_TYPE;
     }
 
+    const Type* get_binary_operator_return_type(const Type* left_type, const Type* right_type, lexer::Operator operation)
+    {
+        using enum lexer::Operator;
+
+        assert(left_type != &NULL_TYPE && right_type != &NULL_TYPE);
+
+        if (operation == Assign)
+        {
+            return is_equivalent_type(left_type, right_type) ? left_type : &NULL_TYPE;
+        }
+        if (!left_type->is_valid_builtin() || !right_type->is_valid_builtin())
+        {
+            return &NULL_TYPE;
+        }
+
+        const auto has_operator = [](std::span<lexer::Operator> span, lexer::Operator operation)
+        {
+            return std::find(span.begin(), span.end(), operation) != span.end();
+        };
+
+        std::array comparison_operators {
+            Less, LessEqual, Equal, GreaterEqual, Greater
+        };
+        if (has_operator(comparison_operators, operation))
+        {
+            return is_equivalent_type(left_type, right_type) ? get_builtin_type("bool") : &NULL_TYPE;
+        }
+
+        std::array logical_operators { LogicalAnd, LogicalOr, LogicalNot };
+        if (has_operator(logical_operators, operation))
+        {
+            const Type* bool_type = get_builtin_type("bool");
+            if (is_equivalent_type(left_type, bool_type) && is_equivalent_type(right_type, bool_type))
+            {
+                return bool_type;
+            }
+            return &NULL_TYPE;
+        }
+
+        std::array integer_operators {
+            Mod, AssignMod, BitwiseAnd, BitwiseOr, BitwiseNot, BitwiseXor, BitwiseLeftShift, BitwiseRightShift,
+            AssignBitwiseAnd, AssignBitwiseOr, AssignBitwiseXor, AssignBitwiseLeftShift, AssignBitwiseRightShift
+        };
+        if (has_operator(integer_operators, operation))
+        {
+            if (!is_equivalent_type(left_type, right_type))
+            {
+                return &NULL_TYPE;
+            }
+
+            constexpr std::array possible_type_names {
+                "uint", "uint2", "uint3", "uint4", "int", "int2", "int3", "int4"
+            };
+            for (std::string_view type_name : possible_type_names)
+            {
+                const Type* type = get_builtin_type(type_name);
+                if (is_equivalent_type(left_type, type))
+                {
+                    return type;
+                }
+            }
+            return &NULL_TYPE;
+        }
+
+        std::array mul_operators { Mul, AssignMul };
+        if (has_operator(mul_operators, operation) && (left_type->is_matrix() || right_type->is_matrix()))
+        {
+            // TODO: Support scalar * matrix?
+            if (left_type->is_matrix() && right_type->is_matrix())
+            {
+                return is_equivalent_type(left_type, right_type) ? remove_const(left_type) : &NULL_TYPE;
+            }
+            if (!left_type->is_vector() && !right_type->is_vector())
+            {
+                return &NULL_TYPE;
+            }
+            if (left_type->builtin_type.scalar == right_type->builtin_type.scalar &&
+                left_type->builtin_type.count_x == right_type->builtin_type.count_x)
+            {
+                return remove_const(left_type->is_vector() ? left_type : right_type);
+            }
+            return &NULL_TYPE;
+        }
+
+        std::array mul_div_operators { Mul, Div, AssignMul, AssignDiv };
+        if (has_operator(mul_div_operators, operation))
+        {
+            if (is_equivalent_type(left_type, right_type))
+            {
+                return remove_const(left_type);
+            }
+            if (!left_type->is_scalar() && !right_type->is_scalar())
+            {
+                return &NULL_TYPE;
+            }
+            if (!left_type->is_vector() && !right_type->is_vector())
+            {
+                return &NULL_TYPE;
+            }
+            if (left_type->builtin_type.scalar == right_type->builtin_type.scalar)
+            {
+                return remove_const(left_type->is_vector() ? left_type : right_type);
+            }
+            return &NULL_TYPE;
+        }
+
+        std::array other_operators {
+            Add, Sub, AssignAdd, AssignSub
+        };
+        if (has_operator(other_operators, operation))
+        {
+            return is_equivalent_type(left_type, right_type) ? remove_const(left_type) : &NULL_TYPE;
+        }
+
+        assert(false);
+    }
+
+
     const Type* get_numeric_literal_type(std::string_view literal)
     {
         if (literal.ends_with('f')) return get_builtin_type("float");
@@ -644,48 +763,13 @@ namespace tungsten::types
             return &NULL_TYPE;
         }
 
-        const Type* return_type = left_type;
-
-        bool has_matching_operator = false;
-        if (node.binary_operation.operation == lexer::Operator::Assign)
-        {
-            has_matching_operator = is_equivalent_type(left_type, right_type);
-        }
-        else if (left_type->is_valid_builtin() && right_type->is_valid_builtin())
-        {
-            has_matching_operator = is_equivalent_type(left_type, right_type);
-            if (node.binary_operation.operation == lexer::Operator::Mul)
-            {
-                if (left_type->is_vector() && right_type->is_matrix())
-                {
-                    has_matching_operator = (left_type->builtin_type.count_x == right_type->builtin_type.count_y);
-                    return_type = left_type;
-                }
-                if (left_type->is_matrix() && right_type->is_vector())
-                {
-                    has_matching_operator = (left_type->builtin_type.count_y == right_type->builtin_type.count_x);
-                    return_type = right_type;
-                }
-                if (left_type->is_scalar() && right_type->is_vector())
-                {
-                    has_matching_operator = true;
-                    return_type = right_type;
-                }
-                if (left_type->is_vector() && right_type->is_scalar())
-                {
-                    has_matching_operator = true;
-                    return_type = left_type;
-                }
-            }
-        }
-
-        if (!has_matching_operator)
+        const Type* return_type = get_binary_operator_return_type(left_type, right_type, node.binary_operation.operation);
+        if (return_type == &NULL_TYPE)
         {
             error::report(
                 "No matching operator for types '" + left_type->name() + "' and '" + right_type->name() + "'",
                 node.byte_offset, node.byte_length
             );
-            return &NULL_TYPE;
         }
         return return_type;
     }
@@ -917,7 +1001,7 @@ namespace tungsten::types
                 num_components_consumed += expression_type->builtin_type.count_x;
             }
 
-            if (!had_invalid_type && num_components_consumed != function_type->builtin_type.count_x)
+            if (!had_invalid_type && num_components_consumed != function_type->builtin_type.count_x && num_components_consumed != 1)
             {
                 error::report(
                     "Invalid number of components passed to '" + function_type->name() + "': Expected " +
