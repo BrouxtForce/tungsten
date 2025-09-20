@@ -22,6 +22,25 @@ namespace tungsten::types
     static std::vector<TypeTemplate> type_templates;
     static const Type NULL_TYPE { .kind = TypeKind::None };
 
+    std::string_view scalar_to_string(ScalarType scalar_type)
+    {
+        switch (scalar_type)
+        {
+            case Bool:
+                return "bool";
+            case Half:
+                return "half";
+            case Float:
+                return "float";
+            case Uint:
+                return "uint";
+            case Int:
+                return "int";
+            default:
+                assert(false);
+        }
+    }
+
     bool Type::is_valid_builtin() const
     {
         if (kind != TypeKind::Builtin)
@@ -85,16 +104,7 @@ namespace tungsten::types
         {
             assert(is_valid_builtin());
 
-            switch (builtin_type.scalar)
-            {
-                case ScalarType::Bool:  output = "bool";  break;
-                case ScalarType::Half:  output = "half";  break;
-                case ScalarType::Float: output = "float"; break;
-                case ScalarType::Uint:  output = "uint";  break;
-                case ScalarType::Int:   output = "int";   break;
-                default:
-                    assert(false);
-            }
+            output = scalar_to_string(builtin_type.scalar);
             if (builtin_type.count_x > 1)
             {
                 output += static_cast<char>(builtin_type.count_x + '0');
@@ -104,6 +114,14 @@ namespace tungsten::types
                 output += 'x';
                 output += static_cast<char>(builtin_type.count_y + '0');
             }
+        }
+        else if (kind == TypeKind::ScalarLiteral)
+        {
+            output += "scalar_literal<";
+            output += std::to_string(static_cast<int>(scalar_literal.possible_scalar_types));
+            output += ", ";
+            output += std::string(scalar_to_string(scalar_literal.preferred_scalar_type));
+            output += '>';
         }
         else
         {
@@ -120,19 +138,6 @@ namespace tungsten::types
         }
 
         return output;
-    }
-
-    std::string scalar_to_string(ScalarType scalar_type)
-    {
-        Type type {
-            .kind = TypeKind::Builtin,
-            .builtin_type = {
-                .scalar = scalar_type,
-                .count_x = 1,
-                .count_y = 1
-            }
-        };
-        return type.name();
     }
 
     void populate_library_functions()
@@ -543,6 +548,40 @@ namespace tungsten::types
         return &function_type;
     }
 
+    const Type* cast_scalar_literal_to_builtin(const Type* type, ScalarType scalar_type)
+    {
+        assert(type->kind == TypeKind::ScalarLiteral);
+        if (type->scalar_literal.possible_scalar_types & scalar_type)
+        {
+            return get_builtin_type(scalar_to_string(scalar_type));
+        }
+        return &NULL_TYPE;
+    }
+
+    const Type* scalar_literals_get_preferred_type(const Type* left_type, const Type* right_type)
+    {
+        assert(left_type->kind == TypeKind::ScalarLiteral && right_type->kind == TypeKind::ScalarLiteral);
+        uint8_t possible_types = left_type->scalar_literal.possible_scalar_types | right_type->scalar_literal.possible_scalar_types;
+        possible_types &= left_type->scalar_literal.preferred_scalar_type | right_type->scalar_literal.preferred_scalar_type;
+        if (possible_types == 0)
+        {
+            return &NULL_TYPE;
+        }
+
+        if (possible_types & ScalarType::Float) return get_builtin_type("float");
+        if (possible_types & ScalarType::Half)  return get_builtin_type("half");
+
+        bool int_is_possible = possible_types & ScalarType::Int;
+        bool uint_is_possible = possible_types & ScalarType::Uint;
+        if (int_is_possible && !uint_is_possible) return get_builtin_type("int");
+        if (uint_is_possible && !int_is_possible) return get_builtin_type("uint");
+        if (int_is_possible || uint_is_possible) return &NULL_TYPE;
+
+        if (possible_types & ScalarType::Bool) return get_builtin_type("bool");
+
+        return  &NULL_TYPE;
+    }
+
     void push_variable_scope()
     {
         variable_stack.push_back({ .type = nullptr });
@@ -616,8 +655,32 @@ namespace tungsten::types
 
     bool is_equivalent_type(const Type* a, const Type* b)
     {
-        // TODO: Allow implicit casts rather than expecting the exact type
-        return remove_const(a) == remove_const(b) && a != &NULL_TYPE;
+        if (a == &NULL_TYPE || b == &NULL_TYPE)
+        {
+            return false;
+        }
+
+        a = remove_const(a);
+        b = remove_const(b);
+
+        if (a->kind == TypeKind::ScalarLiteral || b->kind == TypeKind::ScalarLiteral)
+        {
+            if (a->kind == TypeKind::ScalarLiteral && b->kind == TypeKind::ScalarLiteral)
+            {
+                return a->scalar_literal.possible_scalar_types | b->scalar_literal.possible_scalar_types;
+            }
+            if (a->kind == TypeKind::ScalarLiteral)
+            {
+                std::swap(a, b);
+            }
+            if (!a->is_valid_builtin() || !a->is_scalar())
+            {
+                return false;
+            }
+            return a->builtin_type.scalar & b->scalar_literal.possible_scalar_types;
+        }
+
+        return a == b;
     }
 
     const Type* get_binary_operator_return_type(const Type* left_type, const Type* right_type, lexer::Operator operation)
@@ -737,14 +800,46 @@ namespace tungsten::types
         assert(false);
     }
 
-
+    // TODO: Check that the literal is within range
     const Type* get_numeric_literal_type(std::string_view literal)
     {
-        if (literal.ends_with('f')) return get_builtin_type("float");
-        if (literal.ends_with('h')) return get_builtin_type("half");
-        if (literal.ends_with('u')) return get_builtin_type("uint");
-        if (literal.contains('.')) return get_builtin_type("float");
-        return get_builtin_type("int");
+        Type type {
+            .kind = TypeKind::ScalarLiteral,
+            .scalar_literal = {
+                .possible_scalar_types = static_cast<ScalarType>(
+                    ScalarType::Half | ScalarType::Float | ScalarType::Int
+                ),
+                .preferred_scalar_type = ScalarType::Int
+            }
+        };
+
+        if (!literal.contains('-'))
+        {
+            type.scalar_literal.possible_scalar_types = static_cast<ScalarType>(
+                type.scalar_literal.possible_scalar_types | ScalarType::Uint
+            );
+        }
+        if (literal.contains('.'))
+        {
+            type.scalar_literal.possible_scalar_types = static_cast<ScalarType>(ScalarType::Half | ScalarType::Float);
+            type.scalar_literal.preferred_scalar_type = ScalarType::Float;
+            if (literal.ends_with('h'))
+            {
+                type.scalar_literal.possible_scalar_types = ScalarType::Half;
+                type.scalar_literal.preferred_scalar_type = ScalarType::Half;
+            }
+            if (literal.ends_with('f'))
+            {
+                type.scalar_literal.possible_scalar_types = ScalarType::Float;
+            }
+        }
+        if (literal.ends_with('u'))
+        {
+            type.scalar_literal.possible_scalar_types = ScalarType::Uint;
+            type.scalar_literal.preferred_scalar_type = ScalarType::Uint;
+        }
+
+        return create_modified_type(type);
     }
 
     const Type* type_check_expression_node(const Ast* ast, const AstNode& node);
@@ -761,6 +856,29 @@ namespace tungsten::types
         if (left_type == &NULL_TYPE || right_type == &NULL_TYPE)
         {
             return &NULL_TYPE;
+        }
+
+        if (left_type->kind == TypeKind::ScalarLiteral && right_type->kind == TypeKind::ScalarLiteral)
+        {
+            const Type* preferred_type = scalar_literals_get_preferred_type(left_type, right_type);
+            if (preferred_type == &NULL_TYPE)
+            {
+                left_type = cast_scalar_literal_to_builtin(left_type, left_type->scalar_literal.preferred_scalar_type);
+                right_type = cast_scalar_literal_to_builtin(left_type, right_type->scalar_literal.preferred_scalar_type);
+            }
+            else
+            {
+                left_type = preferred_type;
+                right_type = preferred_type;
+            }
+        }
+        else if (left_type->kind == TypeKind::ScalarLiteral && right_type->is_valid_builtin())
+        {
+            left_type = cast_scalar_literal_to_builtin(left_type, right_type->builtin_type.scalar);
+        }
+        else if (right_type->kind == TypeKind::ScalarLiteral && left_type->is_valid_builtin())
+        {
+            right_type = cast_scalar_literal_to_builtin(right_type, left_type->builtin_type.scalar);
         }
 
         const Type* return_type = get_binary_operator_return_type(left_type, right_type, node.binary_operation.operation);
@@ -897,6 +1015,11 @@ namespace tungsten::types
             const AstNode& argument_node = ast->nodes[node.function_call.argument_nodes[i]];
             const Type* argument_type = type_check_expression_node(ast, argument_node);
 
+            if (argument_type->kind == TypeKind::ScalarLiteral)
+            {
+                // TODO: Be more flexible with the casting
+                argument_type = cast_scalar_literal_to_builtin(argument_type, argument_type->scalar_literal.preferred_scalar_type);
+            }
             if (!argument_type->is_valid_builtin() || argument_type->is_matrix())
             {
                 error::report("Library function argument must be a scalar or vector type", argument_node.byte_offset, argument_node.byte_length);
@@ -977,6 +1100,10 @@ namespace tungsten::types
                 const AstNode& expression_node = ast->nodes[argument_node_index];
                 const Type* expression_type = type_check_expression_node(ast, expression_node);
 
+                if (expression_type->kind == TypeKind::ScalarLiteral)
+                {
+                    expression_type = cast_scalar_literal_to_builtin(expression_type, function_type->builtin_type.scalar);
+                }
                 if (!expression_type->is_valid_builtin())
                 {
                     error::report(
@@ -988,7 +1115,7 @@ namespace tungsten::types
                 }
                 if (function_type->builtin_type.scalar != expression_type->builtin_type.scalar || expression_type->is_matrix())
                 {
-                    std::string left_scalar = scalar_to_string(function_type->builtin_type.scalar);
+                    std::string left_scalar = std::string(scalar_to_string(function_type->builtin_type.scalar));
 
                     error::report(
                         "Expected scalar or vector of '" + left_scalar + "', but got '" + expression_type->name() + "'",

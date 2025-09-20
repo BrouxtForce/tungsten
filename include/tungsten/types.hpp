@@ -24,6 +24,12 @@ namespace tungsten::types
         uint8_t count_y;
     };
 
+    struct ScalarLiteral
+    {
+        ScalarType possible_scalar_types;
+        ScalarType preferred_scalar_type;
+    };
+
     struct TypeNamePair
     {
         const Type* type;
@@ -34,6 +40,7 @@ namespace tungsten::types
     {
         None,
         Builtin,
+        ScalarLiteral,
         Struct,
         UniformGroup,
         VertexGroup,
@@ -78,6 +85,7 @@ namespace tungsten::types
 
         union {
             BuiltinType builtin_type;
+            ScalarLiteral scalar_literal;
             UserType user_type;
             LibraryFunctionType library_function_type;
         };

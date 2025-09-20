@@ -27,7 +27,7 @@ namespace tungsten::lexer
 
             case Less:         return "<";
             case LessEqual:    return "<=";
-            case Equal:        return "=";
+            case Equal:        return "==";
             case GreaterEqual: return ">=";
             case Greater:      return ">";
 
