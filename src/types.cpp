@@ -853,15 +853,8 @@ namespace tungsten::types
 
     const Type* type_check_expression_node(const Ast* ast, const AstNode& node);
 
-    const Type* type_check_binary_operation(const Ast* ast, const AstNode& node)
+    const Type* type_check_binary_operation(const Type* left_type, const Type* right_type, lexer::Operator operation, uint32_t byte_offset, uint32_t byte_length)
     {
-        assert(node.node_type == AstNodeType::BinaryOperation);
-
-        // TODO: Check operation
-
-        const Type* left_type = type_check_expression_node(ast, ast->nodes[node.binary_operation.left]);
-        const Type* right_type = type_check_expression_node(ast, ast->nodes[node.binary_operation.right]);
-
         if (left_type == &NULL_TYPE || right_type == &NULL_TYPE)
         {
             return &NULL_TYPE;
@@ -890,12 +883,12 @@ namespace tungsten::types
             right_type = cast_scalar_literal_to_builtin(right_type, left_type->builtin_type.scalar);
         }
 
-        const Type* return_type = get_binary_operator_return_type(left_type, right_type, node.binary_operation.operation);
+        const Type* return_type = get_binary_operator_return_type(left_type, right_type, operation);
         if (return_type == &NULL_TYPE)
         {
             error::report(
                 "No matching operator for types '" + left_type->name() + "' and '" + right_type->name() + "'",
-                node.byte_offset, node.byte_length
+                byte_offset, byte_length
             );
         }
         return return_type;
@@ -1194,7 +1187,12 @@ namespace tungsten::types
                 // TODO: Check operation
                 return type_check_expression_node(ast, ast->nodes[node.unary_operation.operand]);
             case AstNodeType::BinaryOperation:
-                return type_check_binary_operation(ast, node);
+                return type_check_binary_operation(
+                    type_check_expression_node(ast, ast->nodes[node.binary_operation.left]),
+                    type_check_expression_node(ast, ast->nodes[node.binary_operation.right]),
+                    node.binary_operation.operation,
+                    node.byte_offset, node.byte_length
+                );
             case AstNodeType::Variable:
             case AstNodeType::PropertyAccess:
                 return type_check_variable_or_property_access(ast, node);
@@ -1279,21 +1277,7 @@ namespace tungsten::types
 
         const Type* right_type = type_check_expression_node(ast, ast->nodes[node.variable_assignment.expression]);
 
-        if (left_type == &NULL_TYPE || right_type == &NULL_TYPE)
-        {
-            return;
-        }
-
-        if (!is_equivalent_type(left_type, right_type))
-        {
-            const AstNode& expression_node = ast->nodes[node.variable_assignment.expression];
-            error::report(
-                "Expected type '" + left_type->name() + "' but got '" + right_type->name() + "'",
-                expression_node.byte_offset, expression_node.byte_length
-            );
-        }
-
-        // TODO: Check operation
+        type_check_binary_operation(left_type, right_type, node.variable_assignment.operation, node.byte_offset, node.byte_length);
     }
 
     void type_check_for_loop(const Ast* ast, const AstNode& node)
@@ -1349,6 +1333,8 @@ namespace tungsten::types
                     break;
                 case AstNodeType::ReturnStatement:
                     type_check_expression(ast, ast->nodes[statement_node.return_statement.expression], function_type->user_type.return_type);
+                    break;
+                case AstNodeType::KeywordStatement:
                     break;
                 default:
                     assert(false);
