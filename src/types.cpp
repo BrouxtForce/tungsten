@@ -26,15 +26,15 @@ namespace tungsten::types
     {
         switch (scalar_type)
         {
-            case Bool:
+            case ScalarType_Bool:
                 return "bool";
-            case Half:
+            case ScalarType_Half:
                 return "half";
-            case Float:
+            case ScalarType_Float:
                 return "float";
-            case Uint:
+            case ScalarType_Uint:
                 return "uint";
-            case Int:
+            case ScalarType_Int:
                 return "int";
             default:
                 assert(false);
@@ -48,7 +48,7 @@ namespace tungsten::types
             return false;
         }
 
-        if (!std::has_single_bit(std::to_underlying(builtin_type.scalar)) || builtin_type.scalar > ScalarType::MaxValue)
+        if (!std::has_single_bit(std::to_underlying(builtin_type.scalar)) || builtin_type.scalar > ScalarType_MaxValue)
         {
             return false;
         }
@@ -68,7 +68,7 @@ namespace tungsten::types
         // Matrix types (only square matrices are supported)
         if (builtin_type.count_x > 1 && builtin_type.count_x <= 4 && builtin_type.count_x == builtin_type.count_y)
         {
-            return builtin_type.scalar == ScalarType::Half || builtin_type.scalar == ScalarType::Float;
+            return builtin_type.scalar == ScalarType_Half || builtin_type.scalar == ScalarType_Float;
         }
 
         return false;
@@ -151,15 +151,15 @@ namespace tungsten::types
 
         constexpr TypeTemplate None {};
         constexpr TypeTemplate ScalarUint {
-            .allowed_types = ScalarType::Uint,
+            .allowed_types = ScalarType_Uint,
             .vector_components_mask = 0b0001
         };
         constexpr TypeTemplate ScalarBoolean {
-            .allowed_types = ScalarType::Bool,
+            .allowed_types = ScalarType_Bool,
             .vector_components_mask = 0b0001
         };
         constexpr TypeTemplate Numerical {
-            .allowed_types = ScalarType::Half | ScalarType::Float | ScalarType::Uint | ScalarType::Int,
+            .allowed_types = ScalarType_Half | ScalarType_Float | ScalarType_Uint | ScalarType_Int,
             .vector_components_mask = 0b1111
         };
         constexpr TypeTemplate ScalarNumerical {
@@ -167,7 +167,7 @@ namespace tungsten::types
             .vector_components_mask = 0b0001
         };
         constexpr TypeTemplate Floating {
-            .allowed_types = ScalarType::Half | ScalarType::Float,
+            .allowed_types = ScalarType_Half | ScalarType_Float,
             .vector_components_mask = 0b1111
         };
         constexpr TypeTemplate ScalarFloating {
@@ -179,19 +179,27 @@ namespace tungsten::types
             .vector_components_mask = 0b1110
         };
         constexpr TypeTemplate VectorFloating3 {
-            .allowed_types = ScalarType::Float | ScalarType::Half,
+            .allowed_types = ScalarType_Float | ScalarType_Half,
             .vector_components_mask = 0b0100
         };
+        constexpr TypeTemplate Float4 {
+            .allowed_types = ScalarType_Float,
+            .vector_components_mask = 0b1000
+        };
         constexpr TypeTemplate Integer {
-            .allowed_types = ScalarType::Uint | ScalarType::Int,
+            .allowed_types = ScalarType_Uint | ScalarType_Int,
             .vector_components_mask = 0b1111
         };
+        constexpr TypeTemplate Uint {
+            .allowed_types = ScalarType_Uint,
+            .vector_components_mask = 0b0001
+        };
         constexpr TypeTemplate Boolean {
-            .allowed_types = ScalarType::Bool,
+            .allowed_types = ScalarType_Bool,
             .vector_components_mask = 0b1111
         };
 
-        constexpr static std::array<LibraryFunctionDefinition, 54> library_function_definitions {
+        constexpr static std::array<LibraryFunctionDefinition, 55> library_function_definitions {
             LibraryFunctionDefinition
             { "abs",   Numerical, { Numerical } },
             { "clamp", Numerical, { Numerical, Numerical, Numerical } },
@@ -264,7 +272,10 @@ namespace tungsten::types
             // Logical functions
             { "all",    ScalarBoolean, { Boolean } },
             { "any",    ScalarBoolean, { Boolean } },
-            { "select", Floating, { Floating, Floating, Boolean } }
+            { "select", Floating, { Floating, Floating, Boolean } },
+
+            // Pack/unpack functions (TODO: Add more)
+            { "unpack_unorm4x8_to_float", Float4, { Uint } }
         };
 
         for (const LibraryFunctionDefinition& definition : library_function_definitions)
@@ -311,13 +322,11 @@ namespace tungsten::types
 
             type->library_function_type.parameters.size = type_templates.size() - type->library_function_type.parameters.index;
 
-            type->library_function_type.return_type_template_index = 1;
-            if (definition.return_type_template.allowed_types == used_templates[0].allowed_types)
-            {
-                type->library_function_type.return_type_template_index = 0;
-            }
-
-            type->library_function_type.return_type_is_scalar = (definition.return_type_template.vector_components_mask == 0b0001);
+            type->library_function_type.return_type_template = {
+                .allowed_types = definition.return_type_template.allowed_types,
+                .template_index = definition.return_type_template.allowed_types != used_templates[0].allowed_types,
+                .vector_components_mask = definition.return_type_template.vector_components_mask
+            };
 
             name_type_map.insert({ std::string(definition.name), type });
         }
@@ -338,18 +347,18 @@ namespace tungsten::types
         Type type {
             .kind = TypeKind::Builtin,
             .builtin_type = {
-                .scalar = ScalarType::None,
+                .scalar = ScalarType_None,
                 .count_x = 1,
                 .count_y = 1
             }
         };
 
         static constexpr std::array<std::pair<std::string_view, ScalarType>, 5> name_scalar_type_pairs {
-            std::pair{ "bool",  ScalarType::Bool  },
-            std::pair{ "half",  ScalarType::Half  },
-            std::pair{ "float", ScalarType::Float },
-            std::pair{ "uint",  ScalarType::Uint  },
-            std::pair{ "int",   ScalarType::Int   }
+            std::pair{ "bool",  ScalarType_Bool  },
+            std::pair{ "half",  ScalarType_Half  },
+            std::pair{ "float", ScalarType_Float },
+            std::pair{ "uint",  ScalarType_Uint  },
+            std::pair{ "int",   ScalarType_Int   }
         };
 
         std::string_view vector_count;
@@ -363,7 +372,7 @@ namespace tungsten::types
             }
         }
 
-        if (type.builtin_type.scalar == ScalarType::None)
+        if (type.builtin_type.scalar == ScalarType_None)
         {
             return &NULL_TYPE;
         }
@@ -568,16 +577,16 @@ namespace tungsten::types
             return &NULL_TYPE;
         }
 
-        if (possible_types & ScalarType::Float) return get_builtin_type("float");
-        if (possible_types & ScalarType::Half)  return get_builtin_type("half");
+        if (possible_types & ScalarType_Float) return get_builtin_type("float");
+        if (possible_types & ScalarType_Half)  return get_builtin_type("half");
 
-        bool int_is_possible = possible_types & ScalarType::Int;
-        bool uint_is_possible = possible_types & ScalarType::Uint;
+        bool int_is_possible = possible_types & ScalarType_Int;
+        bool uint_is_possible = possible_types & ScalarType_Uint;
         if (int_is_possible && !uint_is_possible) return get_builtin_type("int");
         if (uint_is_possible && !int_is_possible) return get_builtin_type("uint");
         if (int_is_possible || uint_is_possible) return &NULL_TYPE;
 
-        if (possible_types & ScalarType::Bool) return get_builtin_type("bool");
+        if (possible_types & ScalarType_Bool) return get_builtin_type("bool");
 
         return  &NULL_TYPE;
     }
@@ -807,36 +816,36 @@ namespace tungsten::types
             .kind = TypeKind::ScalarLiteral,
             .scalar_literal = {
                 .possible_scalar_types = static_cast<ScalarType>(
-                    ScalarType::Half | ScalarType::Float | ScalarType::Int
+                    ScalarType_Half | ScalarType_Float | ScalarType_Int
                 ),
-                .preferred_scalar_type = ScalarType::Int
+                .preferred_scalar_type = ScalarType_Int
             }
         };
 
         if (!literal.contains('-'))
         {
             type.scalar_literal.possible_scalar_types = static_cast<ScalarType>(
-                type.scalar_literal.possible_scalar_types | ScalarType::Uint
+                type.scalar_literal.possible_scalar_types | ScalarType_Uint
             );
         }
         if (literal.contains('.'))
         {
-            type.scalar_literal.possible_scalar_types = static_cast<ScalarType>(ScalarType::Half | ScalarType::Float);
-            type.scalar_literal.preferred_scalar_type = ScalarType::Float;
+            type.scalar_literal.possible_scalar_types = static_cast<ScalarType>(ScalarType_Half | ScalarType_Float);
+            type.scalar_literal.preferred_scalar_type = ScalarType_Float;
             if (literal.ends_with('h'))
             {
-                type.scalar_literal.possible_scalar_types = ScalarType::Half;
-                type.scalar_literal.preferred_scalar_type = ScalarType::Half;
+                type.scalar_literal.possible_scalar_types = ScalarType_Half;
+                type.scalar_literal.preferred_scalar_type = ScalarType_Half;
             }
             if (literal.ends_with('f'))
             {
-                type.scalar_literal.possible_scalar_types = ScalarType::Float;
+                type.scalar_literal.possible_scalar_types = ScalarType_Float;
             }
         }
         if (literal.ends_with('u'))
         {
-            type.scalar_literal.possible_scalar_types = ScalarType::Uint;
-            type.scalar_literal.preferred_scalar_type = ScalarType::Uint;
+            type.scalar_literal.possible_scalar_types = ScalarType_Uint;
+            type.scalar_literal.preferred_scalar_type = ScalarType_Uint;
         }
 
         return create_modified_type(type);
@@ -1032,7 +1041,7 @@ namespace tungsten::types
                 (parameter_template.vector_components_mask & (1 << (argument_type->builtin_type.count_x - 1))))
             {
                 ScalarVectorType& argument_type_template = template_index_type_map[parameter_template.template_index];
-                if (argument_type_template.scalar_type == ScalarType::None)
+                if (argument_type_template.scalar_type == ScalarType_None)
                 {
                     argument_type_template.scalar_type = argument_type->builtin_type.scalar;
                     argument_type_template.num_components = argument_type->builtin_type.count_x;
@@ -1069,15 +1078,18 @@ namespace tungsten::types
             return &NULL_TYPE;
         }
 
-        uint8_t return_template_index = function_type->library_function_type.return_type_template_index;
+        TypeTemplate return_type_template = function_type->library_function_type.return_type_template;
 
         Type output_type {
             .kind = TypeKind::Builtin,
             .builtin_type = {
-                .scalar = template_index_type_map[return_template_index].scalar_type,
-                .count_x = function_type->library_function_type.return_type_is_scalar ?
-                    static_cast<uint8_t>(1) :
-                    template_index_type_map[return_template_index].num_components,
+                .scalar = std::popcount(return_type_template.allowed_types) == 1 ?
+                    static_cast<ScalarType>(return_type_template.allowed_types) :
+                    template_index_type_map[return_type_template.template_index].scalar_type,
+                // TODO: Check num_components fits within vector_components_mask?
+                .count_x = std::popcount(return_type_template.vector_components_mask) == 1 ?
+                    static_cast<uint8_t>(std::countr_zero(return_type_template.vector_components_mask) + 1) :
+                    template_index_type_map[return_type_template.template_index].num_components,
                 .count_y = 1
             }
         };

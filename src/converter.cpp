@@ -44,11 +44,11 @@ namespace tungsten::converter
         {
             switch (type->builtin_type.scalar)
             {
-                case types::ScalarType::Bool:  return "bool";
-                case types::ScalarType::Half:  return "f16";
-                case types::ScalarType::Float: return "f32";
-                case types::ScalarType::Uint:  return "u32";
-                case types::ScalarType::Int:   return "i32";
+                case types::ScalarType_Bool:  return "bool";
+                case types::ScalarType_Half:  return "f16";
+                case types::ScalarType_Float: return "f32";
+                case types::ScalarType_Uint:  return "u32";
+                case types::ScalarType_Int:   return "i32";
                 default:
                     assert(false);
             }
@@ -59,11 +59,11 @@ namespace tungsten::converter
             std::string num_components_str = std::to_string(static_cast<int>(type->builtin_type.count_x));
             switch (type->builtin_type.scalar)
             {
-                case types::ScalarType::Bool:  return "vec" + num_components_str + "<bool>";
-                case types::ScalarType::Half:  return "vec" + num_components_str + "h";
-                case types::ScalarType::Float: return "vec" + num_components_str + "f";
-                case types::ScalarType::Uint:  return "vec" + num_components_str + "u";
-                case types::ScalarType::Int:   return "vec" + num_components_str + "i";
+                case types::ScalarType_Bool:  return "vec" + num_components_str + "<bool>";
+                case types::ScalarType_Half:  return "vec" + num_components_str + "h";
+                case types::ScalarType_Float: return "vec" + num_components_str + "f";
+                case types::ScalarType_Uint:  return "vec" + num_components_str + "u";
+                case types::ScalarType_Int:   return "vec" + num_components_str + "i";
                 default:
                     assert(false);
             }
@@ -74,8 +74,8 @@ namespace tungsten::converter
             std::string matrix_size_str = std::to_string(static_cast<int>(type->builtin_type.count_x));
             switch (type->builtin_type.scalar)
             {
-                case types::ScalarType::Half:  return "mat" + matrix_size_str + "x" + matrix_size_str + "h";
-                case types::ScalarType::Float: return "mat" + matrix_size_str + "x" + matrix_size_str + "f";
+                case types::ScalarType_Half:  return "mat" + matrix_size_str + "x" + matrix_size_str + "h";
+                case types::ScalarType_Float: return "mat" + matrix_size_str + "x" + matrix_size_str + "f";
                 default:
                     assert(false);
             }

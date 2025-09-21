@@ -6,13 +6,13 @@ namespace tungsten::types
 {
     enum ScalarType : uint8_t
     {
-        None  = 0,
-        Bool  = 1,
-        Half  = 2,
-        Float = 4,
-        Uint  = 8,
-        Int   = 16,
-        MaxValue = Int
+        ScalarType_None  = 0,
+        ScalarType_Bool  = 1,
+        ScalarType_Half  = 2,
+        ScalarType_Float = 4,
+        ScalarType_Uint  = 8,
+        ScalarType_Int   = 16,
+        ScalarType_MaxValue = ScalarType_Int
     };
 
     struct Type;
@@ -71,8 +71,7 @@ namespace tungsten::types
 
     struct LibraryFunctionType
     {
-        uint8_t return_type_template_index;
-        bool return_type_is_scalar;
+        TypeTemplate return_type_template;
         std::string_view name;
         parser::IndexedSpan<TypeTemplate> parameters;
     };
