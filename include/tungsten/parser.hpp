@@ -8,6 +8,11 @@
 
 #include "tungsten/lexer.hpp"
 
+namespace tungsten::types
+{
+    struct TypeCheckInfo;
+}
+
 namespace tungsten::parser
 {
     enum class AstNodeType : uint8_t
@@ -250,6 +255,7 @@ namespace tungsten::parser
     struct Ast
     {
         lexer::LexerInfo* lexer_info;
+        types::TypeCheckInfo* type_check_info;
 
         // We use a deque here in order to keep references to AstNode's valid as more nodes
         // are appended to the list

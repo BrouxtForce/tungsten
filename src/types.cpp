@@ -15,12 +15,16 @@ namespace tungsten::types
 {
     using parser::Ast, parser::AstNode, parser::AstNodeType;
 
-    static std::unordered_map<std::string, const Type*> name_type_map;
-    static std::deque<Type> type_list;
-    static std::vector<TypeNamePair> type_name_pairs;
-    static std::vector<TypeNamePair> variable_stack;
-    static std::vector<TypeTemplate> type_templates;
     static const Type NULL_TYPE { .kind = TypeKind::None };
+
+    struct TypeCheckInfo
+    {
+        std::unordered_map<std::string, const Type*> name_type_map;
+        std::deque<Type> type_list;
+        std::vector<TypeNamePair> type_name_pairs;
+        std::vector<TypeNamePair> variable_stack;
+        std::vector<TypeTemplate> type_templates;
+    };
 
     std::string_view scalar_to_string(ScalarType scalar_type)
     {
@@ -138,7 +142,7 @@ namespace tungsten::types
         return output;
     }
 
-    void populate_library_functions()
+    void populate_library_functions(TypeCheckInfo* info)
     {
         struct LibraryFunctionDefinition
         {
@@ -278,13 +282,13 @@ namespace tungsten::types
 
         for (const LibraryFunctionDefinition& definition : library_function_definitions)
         {
-            Type* type = &type_list.emplace_back(Type{});
+            Type* type = &info->type_list.emplace_back(Type{});
             type->kind = TypeKind::LibraryFunction;
             type->library_function_type.name = definition.name;
 
             type->library_function_type.parameters = {
-                .vector = &type_templates,
-                .index = static_cast<uint32_t>(type_templates.size())
+                .vector = &info->type_templates,
+                .index = static_cast<uint32_t>(info->type_templates.size())
             };
 
             std::array<TypeTemplate, 2> used_templates{};
@@ -295,7 +299,7 @@ namespace tungsten::types
                     break;
                 }
 
-                TypeTemplate& out_type_template = type_templates.emplace_back();
+                TypeTemplate& out_type_template = info->type_templates.emplace_back();
                 out_type_template = type_template;
 
                 if (used_templates[0] == None || (out_type_template.allowed_types == used_templates[0].allowed_types &&
@@ -318,7 +322,7 @@ namespace tungsten::types
                 }
             }
 
-            type->library_function_type.parameters.size = type_templates.size() - type->library_function_type.parameters.index;
+            type->library_function_type.parameters.size = info->type_templates.size() - type->library_function_type.parameters.index;
 
             type->library_function_type.return_type_template = {
                 .allowed_types = definition.return_type_template.allowed_types,
@@ -326,14 +330,14 @@ namespace tungsten::types
                 .vector_components_mask = definition.return_type_template.vector_components_mask
             };
 
-            name_type_map.insert({ std::string(definition.name), type });
+            info->name_type_map.insert({ std::string(definition.name), type });
         }
     }
 
-    const Type* get_builtin_type(std::string_view type_name)
+    const Type* get_builtin_type(TypeCheckInfo* info, std::string_view type_name)
     {
-        auto it = name_type_map.find(std::string(type_name));
-        if (it != name_type_map.end())
+        auto it = info->name_type_map.find(std::string(type_name));
+        if (it != info->name_type_map.end())
         {
             if (it->second->kind == TypeKind::Builtin)
             {
@@ -410,46 +414,46 @@ namespace tungsten::types
 
         assert(type.is_valid_builtin());
 
-        const Type* output_type = &type_list.emplace_back(type);
-        name_type_map.insert({ std::string(type_name), output_type });
+        const Type* output_type = &info->type_list.emplace_back(type);
+        info->name_type_map.insert({ std::string(type_name), output_type });
         return output_type;
     }
 
-    const Type* get_type(std::string_view type_name)
+    const Type* get_type(TypeCheckInfo* info, std::string_view type_name)
     {
-        auto it = name_type_map.find(std::string(type_name));
-        if (it != name_type_map.end())
+        auto it = info->name_type_map.find(std::string(type_name));
+        if (it != info->name_type_map.end())
         {
             return it->second;
         }
-        return get_builtin_type(type_name);
+        return get_builtin_type(info, type_name);
     }
 
-    const Type* get_matrix_column_type(const Type* type)
+    const Type* get_matrix_column_type(TypeCheckInfo* info, const Type* type)
     {
         assert(type->is_valid_builtin() && type->is_matrix());
-        return get_builtin_type(
+        return get_builtin_type(info,
             std::string(scalar_to_string(type->builtin_type.scalar)) + std::to_string(type->builtin_type.count_x)
         );
     }
 
-    const Type* create_modified_type(const Type& type)
+    const Type* create_modified_type(TypeCheckInfo* info, const Type& type)
     {
         std::string key = type.name();
 
-        auto it = name_type_map.find(key);
-        if (it != name_type_map.end())
+        auto it = info->name_type_map.find(key);
+        if (it != info->name_type_map.end())
         {
             return it->second;
         }
 
-        const Type* out = &type_list.emplace_back(type);
-        name_type_map.insert({ out->name(), out });
+        const Type* out = &info->type_list.emplace_back(type);
+        info->name_type_map.insert({ out->name(), out });
 
         return out;
     }
 
-    const Type* remove_const(const Type* type)
+    const Type* remove_const(TypeCheckInfo* info, const Type* type)
     {
         if (!type->is_const)
         {
@@ -458,12 +462,12 @@ namespace tungsten::types
 
         Type new_type = *type;
         new_type.is_const = false;
-        return create_modified_type(new_type);
+        return create_modified_type(info, new_type);
     }
 
     const Type* create_struct_type(const Ast* ast, const AstNode& node)
     {
-        Type& struct_type = type_list.emplace_back(Type{});
+        Type& struct_type = ast->type_check_info->type_list.emplace_back(Type{});
 
         switch (node.node_type)
         {
@@ -480,7 +484,7 @@ namespace tungsten::types
                 assert(false);
         }
 
-        if (get_builtin_type(node.struct_declaration.name) != &NULL_TYPE)
+        if (get_builtin_type(ast->type_check_info, node.struct_declaration.name) != &NULL_TYPE)
         {
             error::report("Structure name cannot be the same as a builtin type", node.byte_offset, node.byte_length);
             return &NULL_TYPE;
@@ -488,22 +492,22 @@ namespace tungsten::types
 
         struct_type.user_type.name = node.struct_declaration.name;
         struct_type.user_type.members = {
-            .vector = &type_name_pairs,
-            .index = static_cast<uint32_t>(type_name_pairs.size()),
+            .vector = &ast->type_check_info->type_name_pairs,
+            .index = static_cast<uint32_t>(ast->type_check_info->type_name_pairs.size()),
             .size = node.struct_declaration.member_nodes.size
         };
 
         for (uint32_t member_node_index : node.struct_declaration.member_nodes)
         {
             const AstNode& member_node = ast->nodes[member_node_index];
-            const TypeNamePair& member_type = type_name_pairs.emplace_back(
-                get_builtin_type(member_node.struct_member.type_name),
+            const TypeNamePair& member_type = ast->type_check_info->type_name_pairs.emplace_back(
+                get_builtin_type(ast->type_check_info, member_node.struct_member.type_name),
                 member_node.struct_member.name
             );
             error::check(member_type.type != &NULL_TYPE, "Member type must be a builtin type", member_node.byte_offset, member_node.byte_length);
         }
 
-        if (name_type_map.contains(std::string(struct_type.user_type.name)))
+        if (ast->type_check_info->name_type_map.contains(std::string(struct_type.user_type.name)))
         {
             error::report("Another user-defined type already has this name", node.byte_offset, node.byte_length);
             return &NULL_TYPE;
@@ -518,15 +522,15 @@ namespace tungsten::types
         const Type* type = create_struct_type(ast, node);
         if (type != &NULL_TYPE)
         {
-            name_type_map.insert({ std::string(type->user_type.name), type });
+            ast->type_check_info->name_type_map.insert({ std::string(type->user_type.name), type });
         }
     }
 
     const Type* create_and_insert_function_type(const Ast* ast, const AstNode& node)
     {
-        Type& function_type = type_list.emplace_back(Type{});
+        Type& function_type = ast->type_check_info->type_list.emplace_back(Type{});
         function_type.kind = TypeKind::Function;
-        function_type.user_type.return_type = get_type(node.function_declaration.return_type_name);
+        function_type.user_type.return_type = get_type(ast->type_check_info, node.function_declaration.return_type_name);
 
         if (function_type.user_type.return_type == &NULL_TYPE)
         {
@@ -539,8 +543,8 @@ namespace tungsten::types
 
         function_type.user_type.name = node.function_declaration.name;
         function_type.user_type.members = {
-            .vector = &type_name_pairs,
-            .index = static_cast<uint32_t>(type_name_pairs.size()),
+            .vector = &ast->type_check_info->type_name_pairs,
+            .index = static_cast<uint32_t>(ast->type_check_info->type_name_pairs.size()),
             .size = node.function_declaration.argument_nodes.size
         };
 
@@ -549,8 +553,8 @@ namespace tungsten::types
             const AstNode& parameter_node = ast->nodes[parameter_node_index];
             assert(parameter_node.node_type == AstNodeType::FunctionArgument);
 
-            TypeNamePair& parameter_type = type_name_pairs.emplace_back();
-            parameter_type.type = get_type(parameter_node.struct_member.type_name);
+            TypeNamePair& parameter_type = ast->type_check_info->type_name_pairs.emplace_back();
+            parameter_type.type = get_type(ast->type_check_info, parameter_node.struct_member.type_name);
             parameter_type.name = parameter_node.struct_member.name;
 
             if (parameter_type.type == &NULL_TYPE)
@@ -559,21 +563,21 @@ namespace tungsten::types
             }
         }
 
-        name_type_map.insert({ std::string(node.function_declaration.name), &function_type });
+        ast->type_check_info->name_type_map.insert({ std::string(node.function_declaration.name), &function_type });
         return &function_type;
     }
 
-    const Type* cast_scalar_literal_to_builtin(const Type* type, ScalarType scalar_type)
+    const Type* cast_scalar_literal_to_builtin(TypeCheckInfo* info, const Type* type, ScalarType scalar_type)
     {
         assert(type->kind == TypeKind::ScalarLiteral);
         if (type->scalar_literal.possible_scalar_types & scalar_type)
         {
-            return get_builtin_type(scalar_to_string(scalar_type));
+            return get_builtin_type(info, scalar_to_string(scalar_type));
         }
         return &NULL_TYPE;
     }
 
-    const Type* scalar_literals_get_preferred_type(const Type* left_type, const Type* right_type)
+    const Type* scalar_literals_get_preferred_type(TypeCheckInfo* info, const Type* left_type, const Type* right_type)
     {
         assert(left_type->kind == TypeKind::ScalarLiteral && right_type->kind == TypeKind::ScalarLiteral);
         uint8_t possible_types = left_type->scalar_literal.possible_scalar_types | right_type->scalar_literal.possible_scalar_types;
@@ -583,31 +587,31 @@ namespace tungsten::types
             return &NULL_TYPE;
         }
 
-        if (possible_types & ScalarType_Float) return get_builtin_type("float");
-        if (possible_types & ScalarType_Half)  return get_builtin_type("half");
+        if (possible_types & ScalarType_Float) return get_builtin_type(info, "float");
+        if (possible_types & ScalarType_Half)  return get_builtin_type(info, "half");
 
         bool int_is_possible = possible_types & ScalarType_Int;
         bool uint_is_possible = possible_types & ScalarType_Uint;
-        if (int_is_possible && !uint_is_possible) return get_builtin_type("int");
-        if (uint_is_possible && !int_is_possible) return get_builtin_type("uint");
+        if (int_is_possible && !uint_is_possible) return get_builtin_type(info, "int");
+        if (uint_is_possible && !int_is_possible) return get_builtin_type(info, "uint");
         if (int_is_possible || uint_is_possible) return &NULL_TYPE;
 
-        if (possible_types & ScalarType_Bool) return get_builtin_type("bool");
+        if (possible_types & ScalarType_Bool) return get_builtin_type(info, "bool");
 
         return  &NULL_TYPE;
     }
 
-    void push_variable_scope()
+    void push_variable_scope(TypeCheckInfo* info)
     {
-        variable_stack.push_back({ .type = nullptr });
+        info->variable_stack.push_back({ .type = nullptr });
     }
 
-    void pop_variable_scope()
+    void pop_variable_scope(TypeCheckInfo* info)
     {
-        while (variable_stack.size() > 0)
+        while (info->variable_stack.size() > 0)
         {
-            const Type* final_type = variable_stack.back().type;
-            variable_stack.pop_back();
+            const Type* final_type = info->variable_stack.back().type;
+            info->variable_stack.pop_back();
 
             if (final_type == nullptr)
             {
@@ -616,17 +620,17 @@ namespace tungsten::types
         }
     }
 
-    void scope_add_variable(const Type* type, std::string_view name)
+    void scope_add_variable(TypeCheckInfo* info, const Type* type, std::string_view name)
     {
-        variable_stack.push_back({
+        info->variable_stack.push_back({
             .type = type,
             .name = name
         });
     }
 
-    const Type* scope_get_variable_type(std::string_view name)
+    const Type* scope_get_variable_type(TypeCheckInfo* info, std::string_view name)
     {
-        for (TypeNamePair& pair : std::views::reverse(variable_stack))
+        for (TypeNamePair& pair : std::views::reverse(info->variable_stack))
         {
             if (pair.type == nullptr)
             {
@@ -640,9 +644,9 @@ namespace tungsten::types
         return &NULL_TYPE;
     }
 
-    const Type* current_scope_get_variable_type(std::string_view name)
+    const Type* current_scope_get_variable_type(TypeCheckInfo* info, std::string_view name)
     {
-        for (TypeNamePair& pair : std::views::reverse(variable_stack))
+        for (TypeNamePair& pair : std::views::reverse(info->variable_stack))
         {
             if (pair.type == nullptr)
             {
@@ -656,11 +660,11 @@ namespace tungsten::types
         return &NULL_TYPE;
     }
 
-    void scope_add_function_parameters(const Type* function_type)
+    void scope_add_function_parameters(TypeCheckInfo* info, const Type* function_type)
     {
         assert(function_type != &NULL_TYPE && function_type->kind == TypeKind::Function);
 
-        variable_stack.append_range(
+        info->variable_stack.append_range(
             std::ranges::subrange(
                 function_type->user_type.members.begin(),
                 function_type->user_type.members.end()
@@ -668,15 +672,15 @@ namespace tungsten::types
         );
     }
 
-    bool is_equivalent_type(const Type* a, const Type* b)
+    bool is_equivalent_type(TypeCheckInfo* info, const Type* a, const Type* b)
     {
         if (a == &NULL_TYPE || b == &NULL_TYPE)
         {
             return false;
         }
 
-        a = remove_const(a);
-        b = remove_const(b);
+        a = remove_const(info, a);
+        b = remove_const(info, b);
 
         if (a->kind == TypeKind::ScalarLiteral || b->kind == TypeKind::ScalarLiteral)
         {
@@ -698,7 +702,7 @@ namespace tungsten::types
         return a == b;
     }
 
-    const Type* get_binary_operator_return_type(const Type* left_type, const Type* right_type, lexer::Operator operation)
+    const Type* get_binary_operator_return_type(TypeCheckInfo* info, const Type* left_type, const Type* right_type, lexer::Operator operation)
     {
         using enum lexer::Operator;
 
@@ -706,7 +710,7 @@ namespace tungsten::types
 
         if (operation == Assign)
         {
-            return is_equivalent_type(left_type, right_type) ? left_type : &NULL_TYPE;
+            return is_equivalent_type(info, left_type, right_type) ? left_type : &NULL_TYPE;
         }
         if (!left_type->is_valid_builtin() || !right_type->is_valid_builtin())
         {
@@ -723,14 +727,14 @@ namespace tungsten::types
         };
         if (has_operator(comparison_operators, operation))
         {
-            return is_equivalent_type(left_type, right_type) ? get_builtin_type("bool") : &NULL_TYPE;
+            return is_equivalent_type(info, left_type, right_type) ? get_builtin_type(info, "bool") : &NULL_TYPE;
         }
 
         std::array logical_operators { LogicalAnd, LogicalOr, LogicalNot };
         if (has_operator(logical_operators, operation))
         {
-            const Type* bool_type = get_builtin_type("bool");
-            if (is_equivalent_type(left_type, bool_type) && is_equivalent_type(right_type, bool_type))
+            const Type* bool_type = get_builtin_type(info, "bool");
+            if (is_equivalent_type(info, left_type, bool_type) && is_equivalent_type(info, right_type, bool_type))
             {
                 return bool_type;
             }
@@ -743,7 +747,7 @@ namespace tungsten::types
         };
         if (has_operator(integer_operators, operation))
         {
-            if (!is_equivalent_type(left_type, right_type))
+            if (!is_equivalent_type(info, left_type, right_type))
             {
                 return &NULL_TYPE;
             }
@@ -753,8 +757,8 @@ namespace tungsten::types
             };
             for (std::string_view type_name : possible_type_names)
             {
-                const Type* type = get_builtin_type(type_name);
-                if (is_equivalent_type(left_type, type))
+                const Type* type = get_builtin_type(info, type_name);
+                if (is_equivalent_type(info, left_type, type))
                 {
                     return type;
                 }
@@ -768,7 +772,7 @@ namespace tungsten::types
             // TODO: Support scalar * matrix?
             if (left_type->is_matrix() && right_type->is_matrix())
             {
-                return is_equivalent_type(left_type, right_type) ? remove_const(left_type) : &NULL_TYPE;
+                return is_equivalent_type(info, left_type, right_type) ? remove_const(info, left_type) : &NULL_TYPE;
             }
             if (!left_type->is_vector() && !right_type->is_vector())
             {
@@ -777,7 +781,7 @@ namespace tungsten::types
             if (left_type->builtin_type.scalar == right_type->builtin_type.scalar &&
                 left_type->builtin_type.count_x == right_type->builtin_type.count_x)
             {
-                return remove_const(left_type->is_vector() ? left_type : right_type);
+                return remove_const(info, left_type->is_vector() ? left_type : right_type);
             }
             return &NULL_TYPE;
         }
@@ -785,9 +789,9 @@ namespace tungsten::types
         std::array mul_div_operators { Mul, Div, AssignMul, AssignDiv };
         if (has_operator(mul_div_operators, operation))
         {
-            if (is_equivalent_type(left_type, right_type))
+            if (is_equivalent_type(info, left_type, right_type))
             {
-                return remove_const(left_type);
+                return remove_const(info, left_type);
             }
             if (!left_type->is_scalar() && !right_type->is_scalar())
             {
@@ -799,7 +803,7 @@ namespace tungsten::types
             }
             if (left_type->builtin_type.scalar == right_type->builtin_type.scalar)
             {
-                return remove_const(left_type->is_vector() ? left_type : right_type);
+                return remove_const(info, left_type->is_vector() ? left_type : right_type);
             }
             return &NULL_TYPE;
         }
@@ -809,14 +813,14 @@ namespace tungsten::types
         };
         if (has_operator(other_operators, operation))
         {
-            return is_equivalent_type(left_type, right_type) ? remove_const(left_type) : &NULL_TYPE;
+            return is_equivalent_type(info, left_type, right_type) ? remove_const(info, left_type) : &NULL_TYPE;
         }
 
         assert(false);
     }
 
     // TODO: Check that the literal is within range
-    const Type* get_numeric_literal_type(std::string_view literal)
+    const Type* get_numeric_literal_type(TypeCheckInfo* info, std::string_view literal)
     {
         Type type {
             .kind = TypeKind::ScalarLiteral,
@@ -854,12 +858,12 @@ namespace tungsten::types
             type.scalar_literal.preferred_scalar_type = ScalarType_Uint;
         }
 
-        return create_modified_type(type);
+        return create_modified_type(info, type);
     }
 
     const Type* type_check_expression_node(const Ast* ast, const AstNode& node);
 
-    const Type* type_check_binary_operation(const Type* left_type, const Type* right_type, lexer::Operator operation, uint32_t byte_offset, uint32_t byte_length)
+    const Type* type_check_binary_operation(TypeCheckInfo* info, const Type* left_type, const Type* right_type, lexer::Operator operation, uint32_t byte_offset, uint32_t byte_length)
     {
         if (left_type == &NULL_TYPE || right_type == &NULL_TYPE)
         {
@@ -868,11 +872,11 @@ namespace tungsten::types
 
         if (left_type->kind == TypeKind::ScalarLiteral && right_type->kind == TypeKind::ScalarLiteral)
         {
-            const Type* preferred_type = scalar_literals_get_preferred_type(left_type, right_type);
+            const Type* preferred_type = scalar_literals_get_preferred_type(info, left_type, right_type);
             if (preferred_type == &NULL_TYPE)
             {
-                left_type = cast_scalar_literal_to_builtin(left_type, left_type->scalar_literal.preferred_scalar_type);
-                right_type = cast_scalar_literal_to_builtin(left_type, right_type->scalar_literal.preferred_scalar_type);
+                left_type = cast_scalar_literal_to_builtin(info, left_type, left_type->scalar_literal.preferred_scalar_type);
+                right_type = cast_scalar_literal_to_builtin(info, left_type, right_type->scalar_literal.preferred_scalar_type);
             }
             else
             {
@@ -882,14 +886,14 @@ namespace tungsten::types
         }
         else if (left_type->kind == TypeKind::ScalarLiteral && right_type->is_valid_builtin())
         {
-            left_type = cast_scalar_literal_to_builtin(left_type, right_type->builtin_type.scalar);
+            left_type = cast_scalar_literal_to_builtin(info, left_type, right_type->builtin_type.scalar);
         }
         else if (right_type->kind == TypeKind::ScalarLiteral && left_type->is_valid_builtin())
         {
-            right_type = cast_scalar_literal_to_builtin(right_type, left_type->builtin_type.scalar);
+            right_type = cast_scalar_literal_to_builtin(info, right_type, left_type->builtin_type.scalar);
         }
 
-        const Type* return_type = get_binary_operator_return_type(left_type, right_type, operation);
+        const Type* return_type = get_binary_operator_return_type(info, left_type, right_type, operation);
         if (return_type == &NULL_TYPE)
         {
             error::report(
@@ -904,7 +908,7 @@ namespace tungsten::types
     {
         if (node.node_type == AstNodeType::Variable)
         {
-            const Type* variable_type = scope_get_variable_type(node.variable.name);
+            const Type* variable_type = scope_get_variable_type(ast->type_check_info, node.variable.name);
             if (variable_type == &NULL_TYPE)
             {
                 error::report("Use of undeclared variable", node.byte_offset, node.byte_length);
@@ -963,9 +967,9 @@ namespace tungsten::types
             // Otherwise, we would have to check the map ourselves because type equality is based on pointer equality
             if (swizzle.size() == 1)
             {
-                return get_builtin_type(scalar_type.name());
+                return get_builtin_type(ast->type_check_info, scalar_type.name());
             }
-            return get_builtin_type(scalar_type.name() + std::to_string(swizzle.size()));
+            return get_builtin_type(ast->type_check_info, scalar_type.name() + std::to_string(swizzle.size()));
         }
 
         error::report("Cannot access property of type '" + left_type->name() + "'", node.byte_offset, node.byte_length);
@@ -980,17 +984,17 @@ namespace tungsten::types
         const Type* return_type = &NULL_TYPE;
         if (array_type->is_valid_builtin() && array_type->is_matrix())
         {
-            return_type = get_matrix_column_type(array_type);
+            return_type = get_matrix_column_type(ast->type_check_info, array_type);
         }
         else if (array_type->is_valid_builtin() && array_type->is_vector())
         {
-            return_type = get_builtin_type(scalar_to_string(array_type->builtin_type.scalar));
+            return_type = get_builtin_type(ast->type_check_info, scalar_to_string(array_type->builtin_type.scalar));
         }
         else if (array_type->is_array)
         {
             Type array_element_type = *array_type;
             array_element_type.is_array = false;
-            return_type = create_modified_type(array_element_type);
+            return_type = create_modified_type(ast->type_check_info, array_element_type);
         }
         else
         {
@@ -1000,7 +1004,8 @@ namespace tungsten::types
         }
 
         const Type* index_type = type_check_expression_node(ast, ast->nodes[node.array_index.right]);
-        if (!is_equivalent_type(index_type, get_builtin_type("int")) && !is_equivalent_type(index_type, get_builtin_type("uint")))
+        if (!is_equivalent_type(ast->type_check_info, index_type, get_builtin_type(ast->type_check_info, "int")) &&
+            !is_equivalent_type(ast->type_check_info, index_type, get_builtin_type(ast->type_check_info, "uint")))
         {
             const AstNode& index_node = ast->nodes[node.array_index.right];
             error::report("Index type must be int or uint", index_node.byte_offset, index_node.byte_length);
@@ -1039,7 +1044,7 @@ namespace tungsten::types
             if (argument_type->kind == TypeKind::ScalarLiteral)
             {
                 // TODO: Be more flexible with the casting
-                argument_type = cast_scalar_literal_to_builtin(argument_type, argument_type->scalar_literal.preferred_scalar_type);
+                argument_type = cast_scalar_literal_to_builtin(ast->type_check_info, argument_type, argument_type->scalar_literal.preferred_scalar_type);
             }
             if (!argument_type->is_valid_builtin() || argument_type->is_matrix())
             {
@@ -1107,7 +1112,7 @@ namespace tungsten::types
         };
         assert(output_type.is_valid_builtin());
 
-        return get_builtin_type(output_type.name());
+        return get_builtin_type(ast->type_check_info, output_type.name());
     }
 
     const Type* type_check_vector_function_call(const Ast* ast, const AstNode& node, const Type* vector_type)
@@ -1121,7 +1126,7 @@ namespace tungsten::types
 
             if (expression_type->kind == TypeKind::ScalarLiteral)
             {
-                expression_type = cast_scalar_literal_to_builtin(expression_type, vector_type->builtin_type.scalar);
+                expression_type = cast_scalar_literal_to_builtin(ast->type_check_info, expression_type, vector_type->builtin_type.scalar);
             }
             if (!expression_type->is_valid_builtin())
             {
@@ -1161,7 +1166,7 @@ namespace tungsten::types
 
     const Type* type_check_matrix_function_call(const Ast* ast, const AstNode& node, const Type* matrix_type)
     {
-        const Type* column_type = get_matrix_column_type(matrix_type);
+        const Type* column_type = get_matrix_column_type(ast->type_check_info, matrix_type);
         uint32_t num_columns_consumed = 0;
         bool had_invalid_type = false;
         for (uint32_t argument_node_index : node.function_call.argument_nodes)
@@ -1169,7 +1174,7 @@ namespace tungsten::types
             const AstNode& expression_node = ast->nodes[argument_node_index];
             const Type* expression_type = type_check_expression_node(ast, expression_node);
 
-            if (!is_equivalent_type(expression_type, column_type))
+            if (!is_equivalent_type(ast->type_check_info, expression_type, column_type))
             {
                 // TODO: Report the specific expected type
                 error::report(
@@ -1198,7 +1203,7 @@ namespace tungsten::types
     {
         assert(node.node_type == AstNodeType::FunctionCall);
 
-        const Type* function_type = get_type(node.function_call.name);
+        const Type* function_type = get_type(ast->type_check_info, node.function_call.name);
         if (function_type->is_valid_builtin())
         {
             if (function_type->is_vector())
@@ -1246,14 +1251,15 @@ namespace tungsten::types
             case AstNodeType::ArrayIndex:
                 return type_check_array_index(ast, node);
             case AstNodeType::NumericLiteral:
-                return get_numeric_literal_type(node.numeric_literal.str);
+                return get_numeric_literal_type(ast->type_check_info, node.numeric_literal.str);
             case AstNodeType::BooleanLiteral:
-                return get_builtin_type("bool");
+                return get_builtin_type(ast->type_check_info, "bool");
             case AstNodeType::UnaryOperation:
                 // TODO: Check operation
                 return type_check_expression_node(ast, ast->nodes[node.unary_operation.operand]);
             case AstNodeType::BinaryOperation:
                 return type_check_binary_operation(
+                    ast->type_check_info,
                     type_check_expression_node(ast, ast->nodes[node.binary_operation.left]),
                     type_check_expression_node(ast, ast->nodes[node.binary_operation.right]),
                     node.binary_operation.operation,
@@ -1272,7 +1278,7 @@ namespace tungsten::types
     void type_check_expression(const Ast* ast, const AstNode& node, const Type* return_type)
     {
         const Type* actual_return_type = type_check_expression_node(ast, node);
-        if (!is_equivalent_type(return_type, actual_return_type))
+        if (!is_equivalent_type(ast->type_check_info, return_type, actual_return_type))
         {
             if (return_type != &NULL_TYPE && actual_return_type != &NULL_TYPE)
             {
@@ -1292,19 +1298,19 @@ namespace tungsten::types
     {
         assert(node.node_type == AstNodeType::VariableDeclaration);
 
-        if (current_scope_get_variable_type(node.variable_declaration.name) != &NULL_TYPE)
+        if (current_scope_get_variable_type(ast->type_check_info, node.variable_declaration.name) != &NULL_TYPE)
         {
             error::report("Variable redefinition", node.byte_offset, node.byte_length);
             return;
         }
 
-        const Type* variable_type = get_type(node.variable_declaration.type_name);
+        const Type* variable_type = get_type(ast->type_check_info, node.variable_declaration.type_name);
         if (node.variable_declaration.is_array_declaration || node.variable_declaration.is_const)
         {
             Type modified_variable_type = *variable_type;
             modified_variable_type.is_array = node.variable_declaration.is_array_declaration;
             modified_variable_type.is_const = node.variable_declaration.is_const;
-            variable_type = create_modified_type(modified_variable_type);
+            variable_type = create_modified_type(ast->type_check_info, modified_variable_type);
         }
 
         if (variable_type == &NULL_TYPE)
@@ -1312,7 +1318,7 @@ namespace tungsten::types
             error::report("Unknown variable type", node.byte_offset, node.byte_length);
             return;
         }
-        scope_add_variable(variable_type, node.variable_declaration.name);
+        scope_add_variable(ast->type_check_info, variable_type, node.variable_declaration.name);
 
         if (!node.variable_declaration.is_array_declaration)
         {
@@ -1323,7 +1329,7 @@ namespace tungsten::types
         }
         else
         {
-            const Type* underlying_type = get_type(node.variable_declaration.type_name);
+            const Type* underlying_type = get_type(ast->type_check_info, node.variable_declaration.type_name);
             for (uint32_t expression_node_index : node.variable_declaration.array_expressions)
             {
                 type_check_expression(ast, ast->nodes[expression_node_index], underlying_type);
@@ -1350,31 +1356,31 @@ namespace tungsten::types
 
         const Type* right_type = type_check_expression_node(ast, ast->nodes[node.variable_assignment.expression]);
 
-        type_check_binary_operation(left_type, right_type, node.variable_assignment.operation, node.byte_offset, node.byte_length);
+        type_check_binary_operation(ast->type_check_info, left_type, right_type, node.variable_assignment.operation, node.byte_offset, node.byte_length);
     }
 
     void type_check_for_loop(const Ast* ast, const AstNode& node)
     {
-        push_variable_scope();
+        push_variable_scope(ast->type_check_info);
 
         scope_add_variable_declaration_and_type_check(ast, ast->nodes[node.for_loop.init_expression]);
-        type_check_expression(ast, ast->nodes[node.for_loop.comp_expression], get_builtin_type("bool"));
+        type_check_expression(ast, ast->nodes[node.for_loop.comp_expression], get_builtin_type(ast->type_check_info, "bool"));
         type_check_variable_assignment(ast, ast->nodes[node.for_loop.loop_expression]);
 
-        pop_variable_scope();
+        pop_variable_scope(ast->type_check_info);
     }
 
     void type_check_function_body(const Ast* ast, const AstNode& node, const Type* function_type)
     {
         assert(node.node_type == AstNodeType::FunctionBody);
 
-        push_variable_scope();
+        push_variable_scope(ast->type_check_info);
         if (function_type != nullptr)
         {
-            scope_add_function_parameters(function_type);
+            scope_add_function_parameters(ast->type_check_info, function_type);
         }
 
-        const Type* bool_type = get_builtin_type("bool");
+        const Type* bool_type = get_builtin_type(ast->type_check_info, "bool");
 
         for (uint32_t statement_node_index : node.function_body.statements)
         {
@@ -1414,7 +1420,7 @@ namespace tungsten::types
             }
         }
 
-        pop_variable_scope();
+        pop_variable_scope(ast->type_check_info);
     }
 
     void type_check_root_node(const Ast* ast, const AstNode& node)
@@ -1429,7 +1435,7 @@ namespace tungsten::types
                 const Type* type = create_struct_type(ast, node);
                 if (type != &NULL_TYPE)
                 {
-                    scope_add_variable(type, type->user_type.name);
+                    scope_add_variable(ast->type_check_info, type, type->user_type.name);
                 }
                 break;
             }
@@ -1447,18 +1453,17 @@ namespace tungsten::types
         }
     }
 
-    void type_check(const Ast *ast)
+    void type_check(Ast *ast)
     {
-        if (type_list.empty())
-        {
-            populate_library_functions();
-        }
+        ast->type_check_info = new TypeCheckInfo;
+        populate_library_functions(ast->type_check_info);
 
         for (uint32_t root_node_index : ast->root_nodes)
         {
             type_check_root_node(ast, ast->nodes[root_node_index]);
         }
-        pop_variable_scope();
-        assert(variable_stack.empty());
+
+        pop_variable_scope(ast->type_check_info);
+        assert(ast->type_check_info->variable_stack.empty());
     }
 }

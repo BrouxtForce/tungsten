@@ -97,7 +97,9 @@ namespace tungsten::types
         std::string name() const;
     };
 
-    const Type* get_type(std::string_view type_name);
+    struct TypeCheckInfo;
 
-    void type_check(const parser::Ast* ast);
+    const Type* get_type(TypeCheckInfo* info, std::string_view type_name);
+
+    void type_check(parser::Ast* ast);
 }
