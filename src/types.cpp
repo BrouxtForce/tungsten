@@ -702,6 +702,24 @@ namespace tungsten::types
         return a == b;
     }
 
+    // Allows implicit casting of scalars to vectors, given that the underlying scalar type of the vector is equivalent
+    bool is_similar_type(TypeCheckInfo* info, const Type* a, const Type* b)
+    {
+        if (is_equivalent_type(info, a, b))
+        {
+            return true;
+        }
+        if (a->is_valid_builtin() && b->is_valid_builtin())
+        {
+            if ((a->is_vector() && b->is_scalar()) ||
+                (a->is_scalar() && b->is_vector()))
+            {
+                return a->builtin_type.scalar == b->builtin_type.scalar;
+            }
+        }
+        return false;
+    }
+
     const Type* get_binary_operator_return_type(TypeCheckInfo* info, const Type* left_type, const Type* right_type, lexer::Operator operation)
     {
         using enum lexer::Operator;
@@ -710,7 +728,7 @@ namespace tungsten::types
 
         if (operation == Assign)
         {
-            return is_equivalent_type(info, left_type, right_type) ? left_type : &NULL_TYPE;
+            return is_similar_type(info, left_type, right_type) ? left_type : &NULL_TYPE;
         }
         if (!left_type->is_valid_builtin() || !right_type->is_valid_builtin())
         {
@@ -727,14 +745,14 @@ namespace tungsten::types
         };
         if (has_operator(comparison_operators, operation))
         {
-            return is_equivalent_type(info, left_type, right_type) ? get_builtin_type(info, "bool") : &NULL_TYPE;
+            return is_similar_type(info, left_type, right_type) ? get_builtin_type(info, "bool") : &NULL_TYPE;
         }
 
         std::array logical_operators { LogicalAnd, LogicalOr, LogicalNot };
         if (has_operator(logical_operators, operation))
         {
             const Type* bool_type = get_builtin_type(info, "bool");
-            if (is_equivalent_type(info, left_type, bool_type) && is_equivalent_type(info, right_type, bool_type))
+            if (is_similar_type(info, left_type, bool_type) && is_similar_type(info, right_type, bool_type))
             {
                 return bool_type;
             }
@@ -747,7 +765,7 @@ namespace tungsten::types
         };
         if (has_operator(integer_operators, operation))
         {
-            if (!is_equivalent_type(info, left_type, right_type))
+            if (!is_similar_type(info, left_type, right_type))
             {
                 return &NULL_TYPE;
             }
@@ -758,7 +776,7 @@ namespace tungsten::types
             for (std::string_view type_name : possible_type_names)
             {
                 const Type* type = get_builtin_type(info, type_name);
-                if (is_equivalent_type(info, left_type, type))
+                if (is_similar_type(info, left_type, type))
                 {
                     return type;
                 }
@@ -789,7 +807,7 @@ namespace tungsten::types
         std::array mul_div_operators { Mul, Div, AssignMul, AssignDiv };
         if (has_operator(mul_div_operators, operation))
         {
-            if (is_equivalent_type(info, left_type, right_type))
+            if (is_similar_type(info, left_type, right_type))
             {
                 return remove_const(info, left_type);
             }
@@ -813,7 +831,7 @@ namespace tungsten::types
         };
         if (has_operator(other_operators, operation))
         {
-            return is_equivalent_type(info, left_type, right_type) ? remove_const(info, left_type) : &NULL_TYPE;
+            return is_similar_type(info, left_type, right_type) ? remove_const(info, left_type) : &NULL_TYPE;
         }
 
         assert(false);
@@ -1278,7 +1296,7 @@ namespace tungsten::types
     void type_check_expression(const Ast* ast, const AstNode& node, const Type* return_type)
     {
         const Type* actual_return_type = type_check_expression_node(ast, node);
-        if (!is_equivalent_type(ast->type_check_info, return_type, actual_return_type))
+        if (!is_similar_type(ast->type_check_info, return_type, actual_return_type))
         {
             if (return_type != &NULL_TYPE && actual_return_type != &NULL_TYPE)
             {
