@@ -43,7 +43,7 @@ namespace tungsten::types
 
     bool Type::is_valid_builtin() const
     {
-        if (kind != TypeKind::Builtin)
+        if (kind != TypeKind::Builtin || is_array)
         {
             return false;
         }
@@ -102,8 +102,6 @@ namespace tungsten::types
         std::string output;
         if (kind == TypeKind::Builtin)
         {
-            assert(is_valid_builtin());
-
             output = scalar_to_string(builtin_type.scalar);
             if (builtin_type.count_x > 1)
             {
@@ -425,6 +423,14 @@ namespace tungsten::types
             return it->second;
         }
         return get_builtin_type(type_name);
+    }
+
+    const Type* get_matrix_column_type(const Type* type)
+    {
+        assert(type->is_valid_builtin() && type->is_matrix());
+        return get_builtin_type(
+            std::string(scalar_to_string(type->builtin_type.scalar)) + std::to_string(type->builtin_type.count_x)
+        );
     }
 
     const Type* create_modified_type(const Type& type)
@@ -971,7 +977,22 @@ namespace tungsten::types
         assert(node.node_type == AstNodeType::ArrayIndex);
 
         const Type* array_type = type_check_variable_or_property_access(ast, ast->nodes[node.array_index.left]);
-        if (!array_type->is_array)
+        const Type* return_type = &NULL_TYPE;
+        if (array_type->is_valid_builtin() && array_type->is_matrix())
+        {
+            return_type = get_matrix_column_type(array_type);
+        }
+        else if (array_type->is_valid_builtin() && array_type->is_vector())
+        {
+            return_type = get_builtin_type(scalar_to_string(array_type->builtin_type.scalar));
+        }
+        else if (array_type->is_array)
+        {
+            Type array_element_type = *array_type;
+            array_element_type.is_array = false;
+            return_type = create_modified_type(array_element_type);
+        }
+        else
         {
             const AstNode& indexed_node = ast->nodes[node.array_index.left];
             error::report("Type being indexed is not an array", indexed_node.byte_offset, indexed_node.byte_length);
@@ -985,9 +1006,7 @@ namespace tungsten::types
             error::report("Index type must be int or uint", index_node.byte_offset, index_node.byte_length);
         }
 
-        Type output_type = *array_type;
-        output_type.is_array = false;
-        return create_modified_type(output_type);
+        return return_type;
     }
 
     void type_check_expression(const Ast* ast, const AstNode& node, const Type* return_type);
@@ -1091,58 +1110,105 @@ namespace tungsten::types
         return get_builtin_type(output_type.name());
     }
 
+    const Type* type_check_vector_function_call(const Ast* ast, const AstNode& node, const Type* vector_type)
+    {
+        uint32_t num_components_consumed = 0;
+        bool had_invalid_type = false;
+        for (uint32_t argument_node_index : node.function_call.argument_nodes)
+        {
+            const AstNode& expression_node = ast->nodes[argument_node_index];
+            const Type* expression_type = type_check_expression_node(ast, expression_node);
+
+            if (expression_type->kind == TypeKind::ScalarLiteral)
+            {
+                expression_type = cast_scalar_literal_to_builtin(expression_type, vector_type->builtin_type.scalar);
+            }
+            if (!expression_type->is_valid_builtin())
+            {
+                error::report(
+                    "Expected scalar or vector type, but got '" + expression_type->name() + "'",
+                    expression_node.byte_offset, expression_node.byte_length
+                );
+                had_invalid_type = true;
+                continue;
+            }
+            if (vector_type->builtin_type.scalar != expression_type->builtin_type.scalar || expression_type->is_matrix())
+            {
+                std::string left_scalar = std::string(scalar_to_string(vector_type->builtin_type.scalar));
+
+                error::report(
+                    "Expected scalar or vector of '" + left_scalar + "', but got '" + expression_type->name() + "'",
+                    expression_node.byte_offset, expression_node.byte_length
+                );
+                had_invalid_type = true;
+                continue;
+            }
+
+            num_components_consumed += expression_type->builtin_type.count_x;
+        }
+
+        if (!had_invalid_type && num_components_consumed != vector_type->builtin_type.count_x && num_components_consumed != 1)
+        {
+            error::report(
+                "Invalid number of components passed to '" + vector_type->name() + "': Expected " +
+                std::to_string((int)vector_type->builtin_type.count_x) + ", but got " + std::to_string(num_components_consumed),
+                node.byte_offset, node.byte_length
+            );
+        }
+
+        return vector_type;
+    }
+
+    const Type* type_check_matrix_function_call(const Ast* ast, const AstNode& node, const Type* matrix_type)
+    {
+        const Type* column_type = get_matrix_column_type(matrix_type);
+        uint32_t num_columns_consumed = 0;
+        bool had_invalid_type = false;
+        for (uint32_t argument_node_index : node.function_call.argument_nodes)
+        {
+            const AstNode& expression_node = ast->nodes[argument_node_index];
+            const Type* expression_type = type_check_expression_node(ast, expression_node);
+
+            if (!is_equivalent_type(expression_type, column_type))
+            {
+                // TODO: Report the specific expected type
+                error::report(
+                    "Expected '" + column_type->name() + "', but got '" + expression_type->name() + "'",
+                    expression_node.byte_offset, expression_node.byte_length
+                );
+                had_invalid_type = true;
+                continue;
+            }
+            num_columns_consumed++;
+        }
+
+        if (!had_invalid_type && num_columns_consumed != matrix_type->builtin_type.count_x)
+        {
+            error::report(
+                "Invalid number of column vectors passed to '" + matrix_type->name() + "': Expected " +
+                std::to_string((int)matrix_type->builtin_type.count_x) + ", but got " + std::to_string(num_columns_consumed),
+                node.byte_offset, node.byte_length
+            );
+        }
+
+        return matrix_type;
+    }
+
     const Type* type_check_function_call(const Ast* ast, const AstNode& node)
     {
         assert(node.node_type == AstNodeType::FunctionCall);
 
         const Type* function_type = get_type(node.function_call.name);
-        if (function_type->kind == TypeKind::Builtin && function_type->is_vector())
+        if (function_type->is_valid_builtin())
         {
-            uint32_t num_components_consumed = 0;
-            bool had_invalid_type = false;
-            for (uint32_t argument_node_index : node.function_call.argument_nodes)
+            if (function_type->is_vector())
             {
-                const AstNode& expression_node = ast->nodes[argument_node_index];
-                const Type* expression_type = type_check_expression_node(ast, expression_node);
-
-                if (expression_type->kind == TypeKind::ScalarLiteral)
-                {
-                    expression_type = cast_scalar_literal_to_builtin(expression_type, function_type->builtin_type.scalar);
-                }
-                if (!expression_type->is_valid_builtin())
-                {
-                    error::report(
-                        "Expected scalar or vector type, but got '" + expression_type->name() + "'",
-                        expression_node.byte_offset, expression_node.byte_length
-                    );
-                    had_invalid_type = true;
-                    continue;
-                }
-                if (function_type->builtin_type.scalar != expression_type->builtin_type.scalar || expression_type->is_matrix())
-                {
-                    std::string left_scalar = std::string(scalar_to_string(function_type->builtin_type.scalar));
-
-                    error::report(
-                        "Expected scalar or vector of '" + left_scalar + "', but got '" + expression_type->name() + "'",
-                        expression_node.byte_offset, expression_node.byte_length
-                    );
-                    had_invalid_type = true;
-                    continue;
-                }
-
-                num_components_consumed += expression_type->builtin_type.count_x;
+                return type_check_vector_function_call(ast, node, function_type);
             }
-
-            if (!had_invalid_type && num_components_consumed != function_type->builtin_type.count_x && num_components_consumed != 1)
+            if (function_type->is_matrix())
             {
-                error::report(
-                    "Invalid number of components passed to '" + function_type->name() + "': Expected " +
-                    std::to_string((int)function_type->builtin_type.count_x) + ", but got " + std::to_string(num_components_consumed),
-                    node.byte_offset, node.byte_length
-                );
+                return type_check_matrix_function_call(ast, node, function_type);
             }
-
-            return function_type;
         }
 
         if (function_type->kind == TypeKind::LibraryFunction)
@@ -1208,10 +1274,17 @@ namespace tungsten::types
         const Type* actual_return_type = type_check_expression_node(ast, node);
         if (!is_equivalent_type(return_type, actual_return_type))
         {
-            error::report(
-                "Expected type '" + return_type->name() + "', but got '" + std::string(actual_return_type->name()) + "'",
-                node.byte_offset, node.byte_length
-            );
+            if (return_type != &NULL_TYPE && actual_return_type != &NULL_TYPE)
+            {
+                error::report(
+                    "Expected type '" + return_type->name() + "', but got '" + std::string(actual_return_type->name()) + "'",
+                    node.byte_offset, node.byte_length
+                );
+            }
+            else
+            {
+                assert(error::had_error());
+            }
         }
     }
 
