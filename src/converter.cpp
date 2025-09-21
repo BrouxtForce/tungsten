@@ -84,11 +84,29 @@ namespace tungsten::converter
         assert(false);
     }
 
+    std::string get_wgsl_function_name(const Ast* ast, std::string_view function_name)
+    {
+        const types::Type* function_type = get_type(ast->type_check_info, function_name);
+        if (function_type->is_valid_builtin())
+        {
+            return get_wgsl_type_name(ast, function_name);
+        }
+        if (function_type->kind == types::TypeKind::LibraryFunction)
+        {
+            // TODO: More function conversions
+            if (function_type->library_function_type.name == "unpack_unorm4x8_to_float")
+            {
+                return "unpack4x8unorm";
+            }
+        }
+        return function_type->name();
+    }
+
     bool msl_is_builtin_attribute(const Attribute& attribute, AstNodeType node_type)
     {
         switch (node_type)
         {
-            case AstNodeType::Struct:
+            case AstNodeType::StructMember:
                 return attribute.name == "position";
             case AstNodeType::FunctionDeclaration:
                 return attribute.name == "vertex" || attribute.name == "fragment" || attribute.name == "compute";
@@ -116,9 +134,10 @@ namespace tungsten::converter
     std::string wgsl_convert_builtin_attribute(const Attribute& attribute, AstNodeType node_type)
     {
         bool is_wgsl_builtin = false;
+        std::string_view wgsl_attribute_name = attribute.name;
         switch (node_type)
         {
-            case AstNodeType::Struct:
+            case AstNodeType::StructMember:
                 is_wgsl_builtin = attribute.name == "position";
                 break;
             case AstNodeType::FunctionDeclaration:
@@ -128,13 +147,22 @@ namespace tungsten::converter
                 }
                 break;
             case AstNodeType::FunctionArgument:
-                is_wgsl_builtin = attribute.name == "vertex_id" || attribute.name == "instance_id";
+                if (attribute.name == "vertex_id")
+                {
+                    is_wgsl_builtin = true;
+                    wgsl_attribute_name = "vertex_index";
+                }
+                if (attribute.name == "instance_id")
+                {
+                    is_wgsl_builtin = true;
+                    wgsl_attribute_name = "instance_index";
+                }
                 break;
             default: break;
         }
         if (is_wgsl_builtin)
         {
-            return "builtin(" + std::string(attribute.name) + ")";
+            return "builtin(" + std::string(wgsl_attribute_name) + ")";
         }
         return {};
     }
@@ -172,12 +200,19 @@ namespace tungsten::converter
     {
         assert(node.node_type == AstNodeType::Struct);
 
+        // TODO: Only the structs passed as vertex outputs or fragment inputs need the location attribute
+        uint32_t location_index = 0;
         stream << "struct " << node.struct_declaration.name << " {\n";
         for (uint32_t child_node_index : node.struct_declaration.member_nodes)
         {
             const AstNode& child_node = ast->nodes[child_node_index];
+            stream << get_indent(1);
             wgsl_output_attributes(child_node, stream);
-            stream << get_indent(1) << child_node.struct_member.name << ": " << get_wgsl_type_name(ast, child_node.struct_member.type_name) << ",\n";
+            if (!has_attribute(&child_node, "position"))
+            {
+                stream << "@location(" << (location_index++) << ") ";
+            }
+            stream << child_node.struct_member.name << ": " << get_wgsl_type_name(ast, child_node.struct_member.type_name) << ",\n";
         }
         stream << "};\n";
     }
@@ -248,9 +283,9 @@ namespace tungsten::converter
         stream << "};\n";
     }
 
-    void output_expression(const Ast* ast, const AstNode& node, std::ostream& stream);
+    void output_expression(const Ast* ast, const AstNode& node, std::ostream& stream, Backend backend);
 
-    void output_property_access(const Ast* ast, const AstNode& node, std::ostream& stream)
+    void output_property_access(const Ast* ast, const AstNode& node, std::ostream& stream, Backend backend)
     {
         if (node.node_type == AstNodeType::Variable)
         {
@@ -259,14 +294,14 @@ namespace tungsten::converter
         }
         if (node.node_type == AstNodeType::PropertyAccess)
         {
-            output_property_access(ast, ast->nodes[node.property_access.left], stream);
+            output_property_access(ast, ast->nodes[node.property_access.left], stream, backend);
             stream << '.' << node.property_access.name;
             return;
         }
-        output_expression(ast, node, stream);
+        output_expression(ast, node, stream, backend);
     }
 
-    void output_expression(const Ast* ast, const AstNode& node, std::ostream& stream)
+    void output_expression(const Ast* ast, const AstNode& node, std::ostream& stream, Backend backend)
     {
         for (int i = 0; i < node.num_parenthesis; i++)
         {
@@ -275,9 +310,9 @@ namespace tungsten::converter
         switch (node.node_type)
         {
             case AstNodeType::ArrayIndex:
-                output_expression(ast, ast->nodes[node.array_index.left], stream);
+                output_expression(ast, ast->nodes[node.array_index.left], stream, backend);
                 stream << '[';
-                output_expression(ast, ast->nodes[node.array_index.right], stream);
+                output_expression(ast, ast->nodes[node.array_index.right], stream, backend);
                 stream << ']';
                 break;
             case AstNodeType::NumericLiteral:
@@ -288,25 +323,33 @@ namespace tungsten::converter
                 break;
             case AstNodeType::UnaryOperation:
                 stream << lexer::operator_to_string(node.unary_operation.operation);
-                output_expression(ast, ast->nodes[node.unary_operation.operand], stream);
+                output_expression(ast, ast->nodes[node.unary_operation.operand], stream, backend);
                 break;
             case AstNodeType::BinaryOperation:
-                output_expression(ast, ast->nodes[node.binary_operation.left], stream);
+                output_expression(ast, ast->nodes[node.binary_operation.left], stream, backend);
                 stream << ' ' << operator_to_string(node.binary_operation.operation) << ' ';
-                output_expression(ast, ast->nodes[node.binary_operation.right], stream);
+                output_expression(ast, ast->nodes[node.binary_operation.right], stream, backend);
                 break;
             case AstNodeType::Variable:
             case AstNodeType::PropertyAccess:
-                output_property_access(ast, node, stream);
+                output_property_access(ast, node, stream, backend);
                 break;
             case AstNodeType::FunctionCall: {
-                stream << node.function_call.name << '(';
+                if (backend == Backend::MSL)
+                {
+                    stream << node.function_call.name;
+                }
+                else
+                {
+                    stream << get_wgsl_function_name(ast, node.function_call.name);
+                }
+                stream << '(';
                 bool is_first_argument = true;
                 for (uint32_t argument_node_index : node.function_call.argument_nodes)
                 {
                     if (!is_first_argument) stream << ", ";
                     is_first_argument = false;
-                    output_expression(ast, ast->nodes[argument_node_index], stream);
+                    output_expression(ast, ast->nodes[argument_node_index], stream, backend);
                 }
                 stream << ')';
                 break;
@@ -341,7 +384,7 @@ namespace tungsten::converter
                 is_first_expression = false;
 
                 stream << get_indent(indent + 1);
-                output_expression(ast, ast->nodes[expression_node_index], stream);
+                output_expression(ast, ast->nodes[expression_node_index], stream, Backend::MSL);
             }
 
             stream << '\n' << get_indent(indent) << '}';
@@ -351,7 +394,7 @@ namespace tungsten::converter
         if (node.variable_declaration.expression != 0)
         {
             stream << " = ";
-            output_expression(ast, ast->nodes[node.variable_declaration.expression], stream);
+            output_expression(ast, ast->nodes[node.variable_declaration.expression], stream, Backend::MSL);
             return;
         }
         stream << "{}";
@@ -384,7 +427,7 @@ namespace tungsten::converter
                 is_first_expression = false;
 
                 stream << get_indent(indent + 1);
-                output_expression(ast, ast->nodes[expression_node_index], stream);
+                output_expression(ast, ast->nodes[expression_node_index], stream, Backend::WGSL);
             }
 
             stream << '\n' << get_indent(indent) << ')';
@@ -396,7 +439,7 @@ namespace tungsten::converter
         if (node.variable_declaration.expression != 0)
         {
             stream << " = ";
-            output_expression(ast, ast->nodes[node.variable_declaration.expression], stream);
+            output_expression(ast, ast->nodes[node.variable_declaration.expression], stream, Backend::WGSL);
         }
     }
 
@@ -405,7 +448,7 @@ namespace tungsten::converter
         assert(node.node_type == AstNodeType::VariableAssignment);
 
         stream << get_indent(indent);
-        output_property_access(ast, ast->nodes[node.variable_assignment.variable_node], stream);
+        output_property_access(ast, ast->nodes[node.variable_assignment.variable_node], stream, Backend::MSL);
 
         if (node.variable_assignment.expression == 0)
         {
@@ -415,7 +458,7 @@ namespace tungsten::converter
         }
 
         stream << ' ' << operator_to_string(node.variable_assignment.operation) << ' ';
-        output_expression(ast, ast->nodes[node.variable_assignment.expression], stream);
+        output_expression(ast, ast->nodes[node.variable_assignment.expression], stream, Backend::MSL);
     }
 
     void wgsl_output_variable_assignment(const Ast* ast, const AstNode& node, std::ostream& stream, int indent)
@@ -423,7 +466,7 @@ namespace tungsten::converter
         assert(node.node_type == AstNodeType::VariableAssignment);
 
         stream << get_indent(indent);
-        output_property_access(ast, ast->nodes[node.variable_assignment.variable_node], stream);
+        output_property_access(ast, ast->nodes[node.variable_assignment.variable_node], stream, Backend::WGSL);
 
         if (node.variable_assignment.expression == 0)
         {
@@ -433,7 +476,7 @@ namespace tungsten::converter
         }
 
         stream << ' ' << operator_to_string(node.variable_assignment.operation) << ' ';
-        output_expression(ast, ast->nodes[node.variable_assignment.expression], stream);
+        output_expression(ast, ast->nodes[node.variable_assignment.expression], stream, Backend::WGSL);
     }
 
 
@@ -453,7 +496,7 @@ namespace tungsten::converter
         if (node.node_type != AstNodeType::ElseStatement)
         {
             stream << '(';
-            output_expression(ast, ast->nodes[node.if_statement.expression], stream);
+            output_expression(ast, ast->nodes[node.if_statement.expression], stream, backend);
             stream << ") ";
         }
 
@@ -470,7 +513,7 @@ namespace tungsten::converter
             wgsl_output_variable_declaration(ast, ast->nodes[node.for_loop.init_expression], stream, 0);
         stream << "; ";
 
-        output_expression(ast, ast->nodes[node.for_loop.comp_expression], stream);
+        output_expression(ast, ast->nodes[node.for_loop.comp_expression], stream, backend);
         stream << "; ";
 
         backend == Backend::MSL ?
@@ -486,17 +529,17 @@ namespace tungsten::converter
         assert(node.node_type == AstNodeType::WhileLoop);
 
         stream << get_indent(indent) << "while (";
-        output_expression(ast, ast->nodes[node.while_loop.expression], stream);
+        output_expression(ast, ast->nodes[node.while_loop.expression], stream, backend);
         stream << ") ";
         output_function_body(ast, ast->nodes[node.while_loop.body], stream, indent, backend);
     }
 
-    void output_return_statement(const Ast* ast, const AstNode& node, std::ostream& stream, int indent)
+    void output_return_statement(const Ast* ast, const AstNode& node, std::ostream& stream, int indent, Backend backend)
     {
         assert(node.node_type == AstNodeType::ReturnStatement);
 
         stream << get_indent(indent) << "return ";
-        output_expression(ast, ast->nodes[node.return_statement.expression], stream);
+        output_expression(ast, ast->nodes[node.return_statement.expression], stream, backend);
     }
 
     void msl_output_keyword_statement(const AstNode& node, std::ostream& stream, int indent)
@@ -550,7 +593,7 @@ namespace tungsten::converter
                 output_while_loop(ast, node, stream, indent, backend);
                 break;
             case AstNodeType::ReturnStatement:
-                output_return_statement(ast, node, stream, indent);
+                output_return_statement(ast, node, stream, indent, backend);
                 stream << ';';
                 break;
             case AstNodeType::KeywordStatement:
@@ -594,7 +637,9 @@ namespace tungsten::converter
 
             const AstNode& argument_node = ast->nodes[argument_node_index];
             msl_output_attributes(argument_node, stream);
-            if (argument_node.attributes.size == 0)
+
+            bool is_entry_point = has_attribute(&node, "vertex") || has_attribute(&node, "fragment");
+            if (is_entry_point && argument_node.attributes.size == 0)
             {
                 stream << "[[stage_in]] ";
             }
@@ -626,7 +671,13 @@ namespace tungsten::converter
             stream << argument_node.function_argument.name << ": " << get_wgsl_type_name(ast, argument_node.function_argument.type_name);
         }
 
-        stream << ") -> " << get_wgsl_type_name(ast, node.function_declaration.return_type_name) << ' ';
+        stream << ") -> ";
+        // TODO: Be more flexible with fragment function return type
+        if (has_attribute(&node, "fragment"))
+        {
+            stream << "@location(0) ";
+        }
+        stream << get_wgsl_type_name(ast, node.function_declaration.return_type_name) << ' ';
         output_function_body(ast, ast->nodes[node.function_declaration.body], stream, 0, Backend::WGSL);
         stream << '\n';
     }
@@ -794,6 +845,18 @@ namespace tungsten::converter
         for (uint32_t root_node_index : ast->root_nodes)
         {
             output_root_node_reflection(ast, ast->nodes[root_node_index], stream);
+        }
+    }
+
+    void assign_bindings(Ast* ast)
+    {
+        uint32_t next_uniform_group_binding = 0;
+        for (AstNode& node : ast->nodes)
+        {
+            if (node.node_type == AstNodeType::UniformGroup)
+            {
+                node.struct_declaration.binding = next_uniform_group_binding++;
+            }
         }
     }
 }

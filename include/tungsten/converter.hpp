@@ -5,6 +5,8 @@
 
 namespace tungsten::converter
 {
+    void assign_bindings(parser::Ast* ast);
+
     void to_msl(const parser::Ast* ast, std::ostream& stream);
     void to_wgsl(const parser::Ast* ast, std::ostream& stream);
     void to_reflection(const parser::Ast* ast, std::ostream& stream);

@@ -129,6 +129,7 @@ int main(int argc, char** argv)
         std::string code = utility::read_file(input_filepath);
         error::init_error_info(input_filepath, code);
         parser::Ast* ast = parser::generate_ast(code);
+        converter::assign_bindings(ast);
 
         std::stringstream output_stream;
 
@@ -211,6 +212,7 @@ int main(int argc, char** argv)
         }
 
         parser::Ast* ast = parser::generate_ast(code);
+        converter::assign_bindings(ast);
         types::type_check(ast);
 
         bool fail = false;
