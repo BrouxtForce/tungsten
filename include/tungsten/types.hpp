@@ -24,6 +24,12 @@ namespace tungsten::types
         uint8_t count_y;
     };
 
+    struct TextureType
+    {
+        int dimensions;
+        ScalarType scalar_type;
+    };
+
     struct ScalarLiteral
     {
         ScalarType possible_scalar_types;
@@ -34,12 +40,15 @@ namespace tungsten::types
     {
         const Type* type;
         std::string_view name;
+        std::string_view global_name;
     };
 
     enum class TypeKind : uint8_t
     {
         None,
         Builtin,
+        BuiltinTexture,
+        BuiltinSampler,
         ScalarLiteral,
         Struct,
         UniformGroup,
@@ -84,6 +93,7 @@ namespace tungsten::types
 
         union {
             BuiltinType builtin_type;
+            TextureType texture_type;
             ScalarLiteral scalar_literal;
             UserType user_type;
             LibraryFunctionType library_function_type;
@@ -99,7 +109,7 @@ namespace tungsten::types
 
     struct TypeCheckInfo;
 
-    const Type* get_type(TypeCheckInfo* info, std::string_view type_name);
+    const Type* get_type(TypeCheckInfo* info, parser::TypeDescriptor type_descriptor);
 
     void type_check(parser::Ast* ast);
 }

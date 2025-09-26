@@ -129,7 +129,6 @@ int main(int argc, char** argv)
         std::string code = utility::read_file(input_filepath);
         error::init_error_info(input_filepath, code);
         parser::Ast* ast = parser::generate_ast(code);
-        converter::assign_bindings(ast);
 
         std::stringstream output_stream;
 
@@ -140,15 +139,18 @@ int main(int argc, char** argv)
         else if (should_print_msl)
         {
             types::type_check(ast);
+            converter::msl_assign_bindings(ast);
             converter::to_msl(ast, output_stream);
         }
         else if (should_print_wgsl)
         {
             types::type_check(ast);
+            converter::wgsl_assign_bindings(ast);
             converter::to_wgsl(ast, output_stream);
         }
         else if (should_print_reflection)
         {
+            converter::msl_assign_bindings(ast);
             converter::to_reflection(ast, output_stream);
         }
         else
@@ -212,25 +214,27 @@ int main(int argc, char** argv)
         }
 
         parser::Ast* ast = parser::generate_ast(code);
-        converter::assign_bindings(ast);
         types::type_check(ast);
 
         bool fail = false;
         if (!msl_output_filepath.empty())
         {
             std::stringstream msl_stream;
+            converter::msl_assign_bindings(ast);
             converter::to_msl(ast, msl_stream);
             fail = fail || !utility::write_file(msl_output_filepath, msl_stream.str());
         }
         if (!wgsl_output_filepath.empty())
         {
             std::stringstream wgsl_stream;
+            converter::wgsl_assign_bindings(ast);
             converter::to_wgsl(ast, wgsl_stream);
             fail = fail || !utility::write_file(wgsl_output_filepath, wgsl_stream.str());
         }
         if (!reflection_output_filepath.empty())
         {
             std::stringstream reflection_stream;
+            converter::msl_assign_bindings(ast);
             converter::to_reflection(ast, reflection_stream);
             fail = fail || !utility::write_file(reflection_output_filepath, reflection_stream.str());
         }

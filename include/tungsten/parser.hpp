@@ -88,6 +88,21 @@ namespace tungsten::parser
         std::string_view name;
     };
 
+    struct TypeDescriptor
+    {
+        std::string_view type_name;
+        std::string_view template_type_name;
+
+        inline std::string to_string() const
+        {
+            if (template_type_name.empty())
+            {
+                return std::string(type_name);
+            }
+            return std::string(type_name) + '<' + std::string(template_type_name) + '>';
+        }
+    };
+
     struct AstNodeStruct
     {
         std::string_view name;
@@ -97,19 +112,23 @@ namespace tungsten::parser
 
     struct AstNodeStructMember
     {
-        std::string_view type_name;
+        TypeDescriptor type_descriptor;
         std::string_view name;
+        std::string_view global_name;
+        uint32_t binding;
+        bool is_texture;
+        bool is_sampler;
     };
 
     struct AstNodeFunctionArgument
     {
-        std::string_view type_name;
+        TypeDescriptor type_descriptor;
         std::string_view name;
     };
 
     struct AstNodeFunctionDeclaration
     {
-        std::string_view return_type_name;
+        TypeDescriptor return_type_descriptor;
         std::string_view name;
         IndexedSpan<uint32_t> argument_nodes;
         uint32_t body;
@@ -122,7 +141,7 @@ namespace tungsten::parser
 
     struct AstNodeVariableDeclaration
     {
-        std::string_view type_name;
+        TypeDescriptor type_descriptor;
         std::string_view name;
         bool is_const;
         bool is_array_declaration;
@@ -177,6 +196,7 @@ namespace tungsten::parser
     {
         uint32_t left;
         std::string_view name;
+        std::string_view global_name;
     };
 
     struct AstNodeFunctionCall
@@ -264,6 +284,7 @@ namespace tungsten::parser
 
         std::vector<Attribute> node_attributes;
         std::vector<uint32_t> node_children;
+        std::vector<std::string> strings;
     };
 
     Ast* generate_ast(std::string_view code);

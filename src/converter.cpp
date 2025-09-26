@@ -26,15 +26,25 @@ namespace tungsten::converter
         return std::string_view(indent_string).substr(0, target_indent);
     }
 
-    std::string_view get_msl_type_name(std::string_view type_name)
+    std::string get_msl_type_name(parser::TypeDescriptor type_descriptor)
     {
-        // NOTE: Eventually, types will be added that are not directly equivalent to the MSL output
-        return type_name;
+        if (type_descriptor.type_name == "texture_2d")
+        {
+            return "texture2d<" + std::string(type_descriptor.template_type_name) + '>';
+        }
+        assert(type_descriptor.template_type_name.empty());
+        return std::string(type_descriptor.type_name);
     }
 
-    std::string get_wgsl_type_name(const Ast* ast, std::string_view type_name)
+    std::string get_wgsl_type_name(const Ast* ast, parser::TypeDescriptor type_descriptor)
     {
-        const types::Type* type = types::get_type(ast->type_check_info, type_name);
+        if (type_descriptor.type_name == "texture_2d")
+        {
+            return "texture_2d<" + get_wgsl_type_name(ast, { .type_name = type_descriptor.template_type_name }) + ">";
+        }
+        assert(type_descriptor.template_type_name.empty());
+
+        const types::Type* type = types::get_type(ast->type_check_info, type_descriptor);
         if (type->kind != types::TypeKind::Builtin)
         {
             return type->name();
@@ -86,10 +96,12 @@ namespace tungsten::converter
 
     std::string get_wgsl_function_name(const Ast* ast, std::string_view function_name)
     {
-        const types::Type* function_type = get_type(ast->type_check_info, function_name);
+        if (function_name == "texture_sample") return "textureSample";
+
+        const types::Type* function_type = get_type(ast->type_check_info, { .type_name = function_name });
         if (function_type->is_valid_builtin())
         {
-            return get_wgsl_type_name(ast, function_name);
+            return get_wgsl_type_name(ast, { .type_name = function_name });
         }
         if (function_type->kind == types::TypeKind::LibraryFunction)
         {
@@ -190,8 +202,9 @@ namespace tungsten::converter
         for (uint32_t child_node_index : node.struct_declaration.member_nodes)
         {
             const AstNode& child_node = ast->nodes[child_node_index];
+            stream << get_indent(1);
             msl_output_attributes(child_node, stream);
-            stream << get_indent(1) << get_msl_type_name(child_node.struct_member.type_name) << ' ' << child_node.struct_member.name << ";\n";
+            stream << get_msl_type_name(child_node.struct_member.type_descriptor) << ' ' << child_node.struct_member.name << ";\n";
         }
         stream << "};\n";
     }
@@ -212,39 +225,100 @@ namespace tungsten::converter
             {
                 stream << "@location(" << (location_index++) << ") ";
             }
-            stream << child_node.struct_member.name << ": " << get_wgsl_type_name(ast, child_node.struct_member.type_name) << ",\n";
+            stream << child_node.struct_member.name << ": " << get_wgsl_type_name(ast, child_node.struct_member.type_descriptor) << ",\n";
         }
         stream << "};\n";
+    }
+
+    bool uniform_group_has_primitive_members(const Ast* ast, const AstNode& node)
+    {
+        assert(node.node_type == AstNodeType::UniformGroup);
+
+        for (uint32_t member_node_index : node.struct_declaration.member_nodes)
+        {
+            const AstNode& member_node = ast->nodes[member_node_index];
+            if (!member_node.struct_member.is_texture && !member_node.struct_member.is_sampler)
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     void msl_output_uniform_group(const Ast* ast, const AstNode& node, std::ostream& stream)
     {
         assert(node.node_type == AstNodeType::UniformGroup);
 
-        stream << "device struct {\n";
+        if (uniform_group_has_primitive_members(ast, node))
+        {
+            stream << "device struct {\n";
+            for (uint32_t member_node_index : node.struct_declaration.member_nodes)
+            {
+                const AstNode& member_node = ast->nodes[member_node_index];
+                if (member_node.struct_member.is_texture || member_node.struct_member.is_sampler)
+                {
+                    continue;
+                }
+
+                stream << get_indent(1);
+                stream << get_msl_type_name(member_node.struct_member.type_descriptor) << ' ' << member_node.struct_member.name << ";\n";
+            }
+            stream << "}& constant " << node.struct_declaration.name;
+            stream << " [[buffer(" << node.struct_declaration.binding << ")]];\n";
+        }
+
         for (uint32_t member_node_index : node.struct_declaration.member_nodes)
         {
             const AstNode& member_node = ast->nodes[member_node_index];
-            stream << get_indent(1);
-            stream << get_msl_type_name(member_node.struct_member.type_name) << ' ' << member_node.struct_member.name << ";\n";
+
+            if (!member_node.struct_member.is_texture && !member_node.struct_member.is_sampler)
+            {
+                continue;
+            }
+            assert(!member_node.struct_member.global_name.empty());
+
+            stream << get_msl_type_name(member_node.struct_member.type_descriptor) << " constant " << member_node.struct_member.global_name;
+            if (member_node.struct_member.is_texture) stream << " [[texture(";
+            if (member_node.struct_member.is_sampler) stream << " [[sampler(";
+            stream << member_node.struct_member.binding << ")]];\n";
         }
-        stream << "}& constant " << node.struct_declaration.name;
-        stream << " [[buffer(" << node.struct_declaration.binding << ")]];\n";
     }
 
     void wgsl_output_uniform_group(const Ast* ast, const AstNode& node, std::ostream& stream)
     {
         assert(node.node_type == AstNodeType::UniformGroup);
 
-        stream << "struct _" << node.struct_declaration.name << " {\n";
+        if (uniform_group_has_primitive_members(ast, node))
+        {
+            stream << "struct _" << node.struct_declaration.name << " {\n";
+            for (uint32_t child_node_index : node.struct_declaration.member_nodes)
+            {
+                const AstNode& member_node = ast->nodes[child_node_index];
+                if (member_node.struct_member.is_texture || member_node.struct_member.is_sampler)
+                {
+                    continue;
+                }
+
+                wgsl_output_attributes(member_node, stream);
+                stream << get_indent(1) << member_node.struct_member.name << ": " << get_wgsl_type_name(ast, member_node.struct_member.type_descriptor) << ",\n";
+            }
+            stream << "};\n@group(" << node.struct_declaration.binding << ") @binding(0) var<uniform> ";
+            stream << node.struct_declaration.name << ": _" << node.struct_declaration.name << ";\n";
+        }
+
         for (uint32_t child_node_index : node.struct_declaration.member_nodes)
         {
-            const AstNode& child_node = ast->nodes[child_node_index];
-            wgsl_output_attributes(child_node, stream);
-            stream << get_indent(1) << child_node.struct_member.name << ": " << get_wgsl_type_name(ast, child_node.struct_member.type_name) << ",\n";
+            const AstNode& member_node = ast->nodes[child_node_index];
+            if (!member_node.struct_member.is_texture && !member_node.struct_member.is_sampler)
+            {
+                continue;
+            }
+            assert(!member_node.struct_member.global_name.empty());
+
+            stream << "@group(" << node.struct_declaration.binding << ") @binding(" << member_node.struct_member.binding;
+            stream << ") var " << member_node.struct_member.global_name << ": ";
+            stream << get_wgsl_type_name(ast, member_node.struct_member.type_descriptor) << ";\n";
         }
-        stream << "};\n@group(" << node.struct_declaration.binding << ") @binding(0) var<uniform> ";
-        stream << node.struct_declaration.name << ": _" << node.struct_declaration.name << ";\n";
     }
 
     void msl_output_vertex_group(const Ast* ast, const AstNode& node, std::ostream& stream)
@@ -258,7 +332,7 @@ namespace tungsten::converter
             const AstNode& member_node = ast->nodes[member_node_index];
 
             stream << get_indent(1);
-            stream << get_msl_type_name(member_node.struct_member.type_name) << ' ' << member_node.struct_member.name;
+            stream << get_msl_type_name(member_node.struct_member.type_descriptor) << ' ' << member_node.struct_member.name;
             stream << " [[attribute(" << attribute << ")]];\n";
             attribute++;
         }
@@ -277,7 +351,7 @@ namespace tungsten::converter
             const AstNode& child_node = ast->nodes[child_node_index];
             wgsl_output_attributes(child_node, stream);
             stream << get_indent(1) << "@location(" << member_location << ") ";
-            stream << child_node.struct_member.name << ": " << get_wgsl_type_name(ast, child_node.struct_member.type_name) << ",\n";
+            stream << child_node.struct_member.name << ": " << get_wgsl_type_name(ast, child_node.struct_member.type_descriptor) << ",\n";
             member_location++;
         }
         stream << "};\n";
@@ -294,11 +368,62 @@ namespace tungsten::converter
         }
         if (node.node_type == AstNodeType::PropertyAccess)
         {
+            if (!node.property_access.global_name.empty())
+            {
+                stream << node.property_access.global_name;
+                return;
+            }
+
             output_property_access(ast, ast->nodes[node.property_access.left], stream, backend);
             stream << '.' << node.property_access.name;
             return;
         }
         output_expression(ast, node, stream, backend);
+    }
+
+    void output_function_call(const Ast* ast, const AstNode& node, std::ostream& stream, Backend backend)
+    {
+        if (backend == Backend::MSL)
+        {
+            if (node.function_call.name == "texture_sample")
+            {
+                assert(node.function_call.argument_nodes.size >= 1);
+
+                const AstNode& texture_node = ast->nodes[node.function_call.argument_nodes[0]];
+                output_expression(ast, texture_node, stream, backend);
+                stream << ".sample(";
+
+                bool is_first_argument = true;
+                for (size_t i = 1; i < node.function_call.argument_nodes.size; i++)
+                {
+                    if (!is_first_argument) stream << ", ";
+                    is_first_argument = false;
+
+                    uint32_t argument_node_index = node.function_call.argument_nodes[i];
+                    output_expression(ast, ast->nodes[argument_node_index], stream, backend);
+                }
+                stream << ')';
+
+                return;
+            }
+            else
+            {
+                stream << node.function_call.name;
+            }
+        }
+        else
+        {
+            stream << get_wgsl_function_name(ast, node.function_call.name);
+        }
+        stream << '(';
+        bool is_first_argument = true;
+        for (uint32_t argument_node_index : node.function_call.argument_nodes)
+        {
+            if (!is_first_argument) stream << ", ";
+            is_first_argument = false;
+            output_expression(ast, ast->nodes[argument_node_index], stream, backend);
+        }
+        stream << ')';
     }
 
     void output_expression(const Ast* ast, const AstNode& node, std::ostream& stream, Backend backend)
@@ -334,26 +459,9 @@ namespace tungsten::converter
             case AstNodeType::PropertyAccess:
                 output_property_access(ast, node, stream, backend);
                 break;
-            case AstNodeType::FunctionCall: {
-                if (backend == Backend::MSL)
-                {
-                    stream << node.function_call.name;
-                }
-                else
-                {
-                    stream << get_wgsl_function_name(ast, node.function_call.name);
-                }
-                stream << '(';
-                bool is_first_argument = true;
-                for (uint32_t argument_node_index : node.function_call.argument_nodes)
-                {
-                    if (!is_first_argument) stream << ", ";
-                    is_first_argument = false;
-                    output_expression(ast, ast->nodes[argument_node_index], stream, backend);
-                }
-                stream << ')';
+            case AstNodeType::FunctionCall:
+                output_function_call(ast, node, stream, backend);
                 break;
-            }
             default: assert(false);
         }
         for (int i = 0; i < node.num_parenthesis; i++)
@@ -371,7 +479,7 @@ namespace tungsten::converter
         if (node.variable_declaration.is_top_level) stream << "constant ";
         if (node.variable_declaration.is_const) stream << "const ";
 
-        stream << get_msl_type_name(node.variable_declaration.type_name) << ' ' << node.variable_declaration.name;
+        stream << get_msl_type_name(node.variable_declaration.type_descriptor) << ' ' << node.variable_declaration.name;
 
         if (node.variable_declaration.is_array_declaration)
         {
@@ -417,7 +525,7 @@ namespace tungsten::converter
 
         if (node.variable_declaration.is_array_declaration)
         {
-            stream << node.variable_declaration.name << " = array<" << get_wgsl_type_name(ast, node.variable_declaration.type_name);
+            stream << node.variable_declaration.name << " = array<" << get_wgsl_type_name(ast, node.variable_declaration.type_descriptor);
             stream << ", " << node.variable_declaration.array_size_str << ">(\n";
 
             bool is_first_expression = true;
@@ -434,7 +542,7 @@ namespace tungsten::converter
             return;
         }
 
-        stream << node.variable_declaration.name << ": " << get_wgsl_type_name(ast, node.variable_declaration.type_name);
+        stream << node.variable_declaration.name << ": " << get_wgsl_type_name(ast, node.variable_declaration.type_descriptor);
 
         if (node.variable_declaration.expression != 0)
         {
@@ -627,7 +735,7 @@ namespace tungsten::converter
         {
             stream << '\n';
         }
-        stream << get_msl_type_name(node.function_declaration.return_type_name) << ' ' << node.function_declaration.name << "(";
+        stream << get_msl_type_name(node.function_declaration.return_type_descriptor) << ' ' << node.function_declaration.name << "(";
 
         bool is_first_argument = true;
         for (uint32_t argument_node_index : node.function_declaration.argument_nodes)
@@ -643,7 +751,7 @@ namespace tungsten::converter
             {
                 stream << "[[stage_in]] ";
             }
-            stream << get_msl_type_name(argument_node.function_argument.type_name) << ' ' << argument_node.function_argument.name;
+            stream << get_msl_type_name(argument_node.function_argument.type_descriptor) << ' ' << argument_node.function_argument.name;
         }
 
         stream << ") ";
@@ -668,7 +776,7 @@ namespace tungsten::converter
 
             const AstNode& argument_node = ast->nodes[argument_node_index];
             wgsl_output_attributes(argument_node, stream);
-            stream << argument_node.function_argument.name << ": " << get_wgsl_type_name(ast, argument_node.function_argument.type_name);
+            stream << argument_node.function_argument.name << ": " << get_wgsl_type_name(ast, argument_node.function_argument.type_descriptor);
         }
 
         stream << ") -> ";
@@ -677,7 +785,7 @@ namespace tungsten::converter
         {
             stream << "@location(0) ";
         }
-        stream << get_wgsl_type_name(ast, node.function_declaration.return_type_name) << ' ';
+        stream << get_wgsl_type_name(ast, node.function_declaration.return_type_descriptor) << ' ';
         output_function_body(ast, ast->nodes[node.function_declaration.body], stream, 0, Backend::WGSL);
         stream << '\n';
     }
@@ -733,7 +841,7 @@ namespace tungsten::converter
             if (!is_first_child) stream << ", ";
             is_first_child = false;
 
-            stream << member_node.struct_member.type_name << ' ' << member_node.struct_member.name;
+            stream << member_node.struct_member.type_descriptor.to_string() << ' ' << member_node.struct_member.name;
         }
         stream << " }\n";
     }
@@ -769,7 +877,7 @@ namespace tungsten::converter
             if (!is_first_child) stream << ", ";
             is_first_child = false;
 
-            stream << member_node.struct_member.type_name << ' ' << member_node.struct_member.name;
+            stream << member_node.struct_member.type_descriptor.to_string() << ' ' << member_node.struct_member.name;
             output_space_and_user_attributes(member_node, stream);
         }
         stream << " }\n";
@@ -788,7 +896,7 @@ namespace tungsten::converter
 
                 if (function_arg_node.attributes.size == 0)
                 {
-                    stream << ' ' << function_arg_node.function_argument.type_name;
+                    stream << ' ' << function_arg_node.function_argument.type_descriptor.to_string();
                 }
             }
 
@@ -848,15 +956,51 @@ namespace tungsten::converter
         }
     }
 
-    void assign_bindings(Ast* ast)
+    void assign_bindings(Ast* ast, Backend backend)
     {
         uint32_t next_uniform_group_binding = 0;
+        uint32_t next_texture_binding = 0;
+        uint32_t next_sampler_binding = 0;
+        // NOTE: This loop takes advantage of the fact that Ast nodes are consistently sorted in the node list;
+        //       the uniform group parent nodes will always appear before their respective child nodes.
         for (AstNode& node : ast->nodes)
         {
             if (node.node_type == AstNodeType::UniformGroup)
             {
                 node.struct_declaration.binding = next_uniform_group_binding++;
+                if (backend == Backend::WGSL)
+                {
+                    next_texture_binding = 0;
+                    next_sampler_binding = 0;
+                }
+            }
+            if (node.node_type == AstNodeType::UniformGroupMember)
+            {
+                next_texture_binding += node.struct_member.is_texture;
+                next_sampler_binding += node.struct_member.is_sampler;
+                if (backend == Backend::WGSL && (node.struct_member.is_texture || node.struct_member.is_sampler))
+                {
+                    node.struct_member.binding = next_texture_binding + next_sampler_binding;
+                }
+                if (backend == Backend::MSL && node.struct_member.is_texture)
+                {
+                    node.struct_member.binding = next_texture_binding - 1;
+                }
+                if (backend == Backend::MSL && node.struct_member.is_sampler)
+                {
+                    node.struct_member.binding = next_sampler_binding - 1;
+                }
             }
         }
+    }
+
+    void msl_assign_bindings(Ast* ast)
+    {
+        assign_bindings(ast, Backend::MSL);
+    }
+
+    void wgsl_assign_bindings(Ast* ast)
+    {
+        assign_bindings(ast, Backend::WGSL);
     }
 }

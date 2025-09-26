@@ -47,6 +47,15 @@ namespace tungsten::types
 
     bool Type::is_valid_builtin() const
     {
+        if (kind == TypeKind::BuiltinTexture)
+        {
+            // Only 2D textures are currently supported
+            return texture_type.dimensions == 2;
+        }
+        if (kind == TypeKind::BuiltinSampler)
+        {
+            return true;
+        }
         if (kind != TypeKind::Builtin || is_array)
         {
             return false;
@@ -81,19 +90,19 @@ namespace tungsten::types
     bool Type::is_scalar() const
     {
         assert(is_valid_builtin());
-        return builtin_type.count_x == 1;
+        return kind == TypeKind::Builtin && builtin_type.count_x == 1;
     }
 
     bool Type::is_vector() const
     {
         assert(is_valid_builtin());
-        return builtin_type.count_x > 1 && builtin_type.count_y == 1;
+        return kind == TypeKind::Builtin && builtin_type.count_x > 1 && builtin_type.count_y == 1;
     }
 
     bool Type::is_matrix() const
     {
         assert(is_valid_builtin());
-        return builtin_type.count_y > 1;
+        return kind == TypeKind::Builtin && builtin_type.count_y > 1;
     }
 
     std::string Type::name() const
@@ -116,6 +125,15 @@ namespace tungsten::types
                 output += 'x';
                 output += static_cast<char>(builtin_type.count_y + '0');
             }
+        }
+        else if (kind == TypeKind::BuiltinTexture)
+        {
+            return "texture_" + std::to_string(texture_type.dimensions) + "d<" +
+                std::string(scalar_to_string(texture_type.scalar_type)) + ">";
+        }
+        else if (kind == TypeKind::BuiltinSampler)
+        {
+            return "sampler";
         }
         else if (kind == TypeKind::ScalarLiteral)
         {
@@ -334,16 +352,55 @@ namespace tungsten::types
         }
     }
 
-    const Type* get_builtin_type(TypeCheckInfo* info, std::string_view type_name)
+    const Type* get_builtin_type(TypeCheckInfo* info, parser::TypeDescriptor type_descriptor)
     {
-        auto it = info->name_type_map.find(std::string(type_name));
+        auto it = info->name_type_map.find(std::string(type_descriptor.type_name));
         if (it != info->name_type_map.end())
         {
-            if (it->second->kind == TypeKind::Builtin)
+            if (it->second->is_valid_builtin())
             {
                 return it->second;
             }
             return &NULL_TYPE;
+        }
+
+        if (!type_descriptor.template_type_name.empty())
+        {
+            if (type_descriptor.type_name != "texture_2d")
+            {
+                return &NULL_TYPE;
+            }
+
+            const Type* sample_type = get_builtin_type(info, { .type_name = type_descriptor.template_type_name });
+            if (!sample_type->is_valid_builtin() || !sample_type->is_scalar())
+            {
+                return &NULL_TYPE;
+            }
+
+            Type type {
+                .kind = TypeKind::BuiltinTexture,
+                .texture_type = {
+                    .dimensions = 2,
+                    .scalar_type = sample_type->builtin_type.scalar
+                }
+            };
+
+            assert(type.is_valid_builtin());
+
+            const Type* output_type = &info->type_list.emplace_back(type);
+            info->name_type_map.insert({ type_descriptor.to_string(), output_type });
+            return output_type;
+        }
+
+        if (type_descriptor.type_name == "sampler")
+        {
+            Type type { .kind = TypeKind::BuiltinSampler };
+
+            assert(type.is_valid_builtin());
+
+            const Type* output_type = &info->type_list.emplace_back(type);
+            info->name_type_map.insert({ type_descriptor.to_string(), output_type });
+            return output_type;
         }
 
         Type type {
@@ -366,9 +423,9 @@ namespace tungsten::types
         std::string_view vector_count;
         for (const std::pair<std::string_view, ScalarType>& pair : name_scalar_type_pairs)
         {
-            if (type_name.starts_with(pair.first))
+            if (type_descriptor.type_name.starts_with(pair.first))
             {
-                vector_count = type_name.substr(pair.first.size());
+                vector_count = type_descriptor.type_name.substr(pair.first.size());
                 type.builtin_type.scalar = pair.second;
                 break;
             }
@@ -415,26 +472,32 @@ namespace tungsten::types
         assert(type.is_valid_builtin());
 
         const Type* output_type = &info->type_list.emplace_back(type);
-        info->name_type_map.insert({ std::string(type_name), output_type });
+        info->name_type_map.insert({ type_descriptor.to_string(), output_type });
         return output_type;
     }
 
-    const Type* get_type(TypeCheckInfo* info, std::string_view type_name)
+    const Type* get_type(TypeCheckInfo* info, parser::TypeDescriptor type_descriptor)
     {
-        auto it = info->name_type_map.find(std::string(type_name));
+        auto it = info->name_type_map.find(type_descriptor.to_string());
         if (it != info->name_type_map.end())
         {
             return it->second;
         }
-        return get_builtin_type(info, type_name);
+        return get_builtin_type(info, type_descriptor);
+    }
+
+    const Type* get_vector_type(TypeCheckInfo* info, ScalarType scalar_type, int num_components)
+    {
+        assert(num_components >= 1 && num_components <= 4);
+        return get_builtin_type(info,
+            { .type_name = std::string(scalar_to_string(scalar_type)) + std::to_string(num_components) }
+        );
     }
 
     const Type* get_matrix_column_type(TypeCheckInfo* info, const Type* type)
     {
         assert(type->is_valid_builtin() && type->is_matrix());
-        return get_builtin_type(info,
-            std::string(scalar_to_string(type->builtin_type.scalar)) + std::to_string(type->builtin_type.count_x)
-        );
+        return get_vector_type(info, type->builtin_type.scalar, type->builtin_type.count_y);
     }
 
     const Type* create_modified_type(TypeCheckInfo* info, const Type& type)
@@ -484,7 +547,7 @@ namespace tungsten::types
                 assert(false);
         }
 
-        if (get_builtin_type(ast->type_check_info, node.struct_declaration.name) != &NULL_TYPE)
+        if (get_builtin_type(ast->type_check_info, { .type_name = node.struct_declaration.name }) != &NULL_TYPE)
         {
             error::report("Structure name cannot be the same as a builtin type", node.byte_offset, node.byte_length);
             return &NULL_TYPE;
@@ -500,11 +563,26 @@ namespace tungsten::types
         for (uint32_t member_node_index : node.struct_declaration.member_nodes)
         {
             const AstNode& member_node = ast->nodes[member_node_index];
-            const TypeNamePair& member_type = ast->type_check_info->type_name_pairs.emplace_back(
-                get_builtin_type(ast->type_check_info, member_node.struct_member.type_name),
+            TypeNamePair& member_type = ast->type_check_info->type_name_pairs.emplace_back(
+                get_builtin_type(ast->type_check_info, member_node.struct_member.type_descriptor),
                 member_node.struct_member.name
             );
             error::check(member_type.type != &NULL_TYPE, "Member type must be a builtin type", member_node.byte_offset, member_node.byte_length);
+
+            // Because textures and samplers have to be declared in the global scope, they need to be assigned unique
+            // identifiers when their scoped names are converted into global identifiers
+            if (member_type.type->kind == TypeKind::BuiltinTexture || member_type.type->kind == TypeKind::BuiltinSampler)
+            {
+                error::check(struct_type.kind == TypeKind::UniformGroup,
+                    "Texture or sampler types can only be declared in uniform groups",
+                    member_node.byte_offset, member_node.byte_length
+                );
+                // TODO: Remove use of const_cast
+                member_type.global_name = const_cast<Ast*>(ast)->strings.emplace_back(
+                    '_' + std::string(struct_type.user_type.name) + "__" + std::string(member_type.name)
+                );
+                const_cast<AstNode&>(member_node).struct_member.global_name = member_type.global_name;
+            }
         }
 
         if (ast->type_check_info->name_type_map.contains(std::string(struct_type.user_type.name)))
@@ -530,12 +608,12 @@ namespace tungsten::types
     {
         Type& function_type = ast->type_check_info->type_list.emplace_back(Type{});
         function_type.kind = TypeKind::Function;
-        function_type.user_type.return_type = get_type(ast->type_check_info, node.function_declaration.return_type_name);
+        function_type.user_type.return_type = get_type(ast->type_check_info, node.function_declaration.return_type_descriptor);
 
         if (function_type.user_type.return_type == &NULL_TYPE)
         {
             error::report(
-                "Unknown return type '" + std::string(node.function_declaration.return_type_name) + "'",
+                "Unknown return type '" + node.function_declaration.return_type_descriptor.to_string() + "'",
                 node.byte_offset, node.byte_length
             );
             return &NULL_TYPE;
@@ -554,7 +632,7 @@ namespace tungsten::types
             assert(parameter_node.node_type == AstNodeType::FunctionArgument);
 
             TypeNamePair& parameter_type = ast->type_check_info->type_name_pairs.emplace_back();
-            parameter_type.type = get_type(ast->type_check_info, parameter_node.struct_member.type_name);
+            parameter_type.type = get_type(ast->type_check_info, parameter_node.struct_member.type_descriptor);
             parameter_type.name = parameter_node.struct_member.name;
 
             if (parameter_type.type == &NULL_TYPE)
@@ -572,7 +650,7 @@ namespace tungsten::types
         assert(type->kind == TypeKind::ScalarLiteral);
         if (type->scalar_literal.possible_scalar_types & scalar_type)
         {
-            return get_builtin_type(info, scalar_to_string(scalar_type));
+            return get_builtin_type(info, { .type_name = scalar_to_string(scalar_type) });
         }
         return &NULL_TYPE;
     }
@@ -587,16 +665,16 @@ namespace tungsten::types
             return &NULL_TYPE;
         }
 
-        if (possible_types & ScalarType_Float) return get_builtin_type(info, "float");
-        if (possible_types & ScalarType_Half)  return get_builtin_type(info, "half");
+        if (possible_types & ScalarType_Float) return get_builtin_type(info, { .type_name = "float" });
+        if (possible_types & ScalarType_Half)  return get_builtin_type(info, { .type_name = "half" });
 
         bool int_is_possible = possible_types & ScalarType_Int;
         bool uint_is_possible = possible_types & ScalarType_Uint;
-        if (int_is_possible && !uint_is_possible) return get_builtin_type(info, "int");
-        if (uint_is_possible && !int_is_possible) return get_builtin_type(info, "uint");
+        if (int_is_possible && !uint_is_possible) return get_builtin_type(info, { .type_name = "int" });
+        if (uint_is_possible && !int_is_possible) return get_builtin_type(info, { .type_name = "uint" });
         if (int_is_possible || uint_is_possible) return &NULL_TYPE;
 
-        if (possible_types & ScalarType_Bool) return get_builtin_type(info, "bool");
+        if (possible_types & ScalarType_Bool) return get_builtin_type(info, { .type_name = "bool" });
 
         return  &NULL_TYPE;
     }
@@ -745,13 +823,13 @@ namespace tungsten::types
         };
         if (has_operator(comparison_operators, operation))
         {
-            return is_similar_type(info, left_type, right_type) ? get_builtin_type(info, "bool") : &NULL_TYPE;
+            return is_similar_type(info, left_type, right_type) ? get_builtin_type(info, { .type_name = "bool" }) : &NULL_TYPE;
         }
 
         std::array logical_operators { LogicalAnd, LogicalOr, LogicalNot };
         if (has_operator(logical_operators, operation))
         {
-            const Type* bool_type = get_builtin_type(info, "bool");
+            const Type* bool_type = get_builtin_type(info, { .type_name = "bool" });
             if (is_similar_type(info, left_type, bool_type) && is_similar_type(info, right_type, bool_type))
             {
                 return bool_type;
@@ -775,7 +853,7 @@ namespace tungsten::types
             };
             for (std::string_view type_name : possible_type_names)
             {
-                const Type* type = get_builtin_type(info, type_name);
+                const Type* type = get_builtin_type(info, { .type_name = type_name });
                 if (is_similar_type(info, left_type, type))
                 {
                     return type;
@@ -947,6 +1025,11 @@ namespace tungsten::types
             {
                 if (pair.name == node.property_access.name)
                 {
+                    if (!pair.global_name.empty())
+                    {
+                        // TODO: Remove use of const_cast
+                        const_cast<AstNode&>(node).property_access.global_name = pair.global_name;
+                    }
                     return pair.type;
                 }
             }
@@ -985,9 +1068,9 @@ namespace tungsten::types
             // Otherwise, we would have to check the map ourselves because type equality is based on pointer equality
             if (swizzle.size() == 1)
             {
-                return get_builtin_type(ast->type_check_info, scalar_type.name());
+                return get_builtin_type(ast->type_check_info, { .type_name = scalar_type.name() });
             }
-            return get_builtin_type(ast->type_check_info, scalar_type.name() + std::to_string(swizzle.size()));
+            return get_builtin_type(ast->type_check_info, { .type_name = scalar_type.name() + std::to_string(swizzle.size()) });
         }
 
         error::report("Cannot access property of type '" + left_type->name() + "'", node.byte_offset, node.byte_length);
@@ -1006,7 +1089,7 @@ namespace tungsten::types
         }
         else if (array_type->is_valid_builtin() && array_type->is_vector())
         {
-            return_type = get_builtin_type(ast->type_check_info, scalar_to_string(array_type->builtin_type.scalar));
+            return_type = get_builtin_type(ast->type_check_info, { .type_name = scalar_to_string(array_type->builtin_type.scalar) });
         }
         else if (array_type->is_array)
         {
@@ -1022,8 +1105,8 @@ namespace tungsten::types
         }
 
         const Type* index_type = type_check_expression_node(ast, ast->nodes[node.array_index.right]);
-        if (!is_equivalent_type(ast->type_check_info, index_type, get_builtin_type(ast->type_check_info, "int")) &&
-            !is_equivalent_type(ast->type_check_info, index_type, get_builtin_type(ast->type_check_info, "uint")))
+        if (!is_equivalent_type(ast->type_check_info, index_type, get_builtin_type(ast->type_check_info, { .type_name = "int" })) &&
+            !is_equivalent_type(ast->type_check_info, index_type, get_builtin_type(ast->type_check_info, { .type_name = "uint" })))
         {
             const AstNode& index_node = ast->nodes[node.array_index.right];
             error::report("Index type must be int or uint", index_node.byte_offset, index_node.byte_length);
@@ -1130,7 +1213,7 @@ namespace tungsten::types
         };
         assert(output_type.is_valid_builtin());
 
-        return get_builtin_type(ast->type_check_info, output_type.name());
+        return get_builtin_type(ast->type_check_info, { .type_name = output_type.name() });
     }
 
     const Type* type_check_vector_function_call(const Ast* ast, const AstNode& node, const Type* vector_type)
@@ -1217,11 +1300,46 @@ namespace tungsten::types
         return matrix_type;
     }
 
+    const Type* type_check_texture_sample_call(const Ast* ast, const AstNode& node)
+    {
+        assert(node.node_type == AstNodeType::FunctionCall && node.function_call.name == "texture_sample");
+
+        if (node.function_call.argument_nodes.size != 3)
+        {
+            error::report(
+                "Expected 3 arguments in call to texture_sample(), but got " + std::to_string(node.function_call.argument_nodes.size),
+                node.byte_offset, node.byte_length
+            );
+            return &NULL_TYPE;
+        }
+
+        const AstNode& texture_argument_node = ast->nodes[node.function_call.argument_nodes[0]];
+        const Type* texture_type = type_check_expression_node(ast, texture_argument_node);
+        if (texture_type->kind != TypeKind::BuiltinTexture)
+        {
+            error::report("Expected texture type", texture_argument_node.byte_offset, texture_argument_node.byte_length);
+            return &NULL_TYPE;
+        }
+
+        const Type* sampler_type = get_builtin_type(ast->type_check_info, { .type_name = "sampler" });
+        type_check_expression(ast, ast->nodes[node.function_call.argument_nodes[1]], sampler_type);
+
+        const Type* coord_type = get_vector_type(ast->type_check_info, texture_type->texture_type.scalar_type, texture_type->texture_type.dimensions);
+        type_check_expression(ast, ast->nodes[node.function_call.argument_nodes[2]], coord_type);
+
+        return get_vector_type(ast->type_check_info, texture_type->texture_type.scalar_type, 4);
+    }
+
     const Type* type_check_function_call(const Ast* ast, const AstNode& node)
     {
         assert(node.node_type == AstNodeType::FunctionCall);
 
-        const Type* function_type = get_type(ast->type_check_info, node.function_call.name);
+        if (node.function_call.name == "texture_sample")
+        {
+            return type_check_texture_sample_call(ast, node);
+        }
+
+        const Type* function_type = get_type(ast->type_check_info, { .type_name = node.function_call.name });
         if (function_type->is_valid_builtin())
         {
             if (function_type->is_vector())
@@ -1271,7 +1389,7 @@ namespace tungsten::types
             case AstNodeType::NumericLiteral:
                 return get_numeric_literal_type(ast->type_check_info, node.numeric_literal.str);
             case AstNodeType::BooleanLiteral:
-                return get_builtin_type(ast->type_check_info, "bool");
+                return get_builtin_type(ast->type_check_info, { .type_name = "bool" });
             case AstNodeType::UnaryOperation:
                 // TODO: Check operation
                 return type_check_expression_node(ast, ast->nodes[node.unary_operation.operand]);
@@ -1322,7 +1440,7 @@ namespace tungsten::types
             return;
         }
 
-        const Type* variable_type = get_type(ast->type_check_info, node.variable_declaration.type_name);
+        const Type* variable_type = get_type(ast->type_check_info, node.variable_declaration.type_descriptor);
         if (node.variable_declaration.is_array_declaration || node.variable_declaration.is_const)
         {
             Type modified_variable_type = *variable_type;
@@ -1347,7 +1465,7 @@ namespace tungsten::types
         }
         else
         {
-            const Type* underlying_type = get_type(ast->type_check_info, node.variable_declaration.type_name);
+            const Type* underlying_type = get_type(ast->type_check_info, node.variable_declaration.type_descriptor);
             for (uint32_t expression_node_index : node.variable_declaration.array_expressions)
             {
                 type_check_expression(ast, ast->nodes[expression_node_index], underlying_type);
@@ -1382,7 +1500,7 @@ namespace tungsten::types
         push_variable_scope(ast->type_check_info);
 
         scope_add_variable_declaration_and_type_check(ast, ast->nodes[node.for_loop.init_expression]);
-        type_check_expression(ast, ast->nodes[node.for_loop.comp_expression], get_builtin_type(ast->type_check_info, "bool"));
+        type_check_expression(ast, ast->nodes[node.for_loop.comp_expression], get_builtin_type(ast->type_check_info, { .type_name = "bool" }));
         type_check_variable_assignment(ast, ast->nodes[node.for_loop.loop_expression]);
 
         pop_variable_scope(ast->type_check_info);
@@ -1398,7 +1516,7 @@ namespace tungsten::types
             scope_add_function_parameters(ast->type_check_info, function_type);
         }
 
-        const Type* bool_type = get_builtin_type(ast->type_check_info, "bool");
+        const Type* bool_type = get_builtin_type(ast->type_check_info, { .type_name = "bool" });
 
         for (uint32_t statement_node_index : node.function_body.statements)
         {
@@ -1441,6 +1559,20 @@ namespace tungsten::types
         pop_variable_scope(ast->type_check_info);
     }
 
+    void annotate_uniform_group(Ast* ast, AstNode& node)
+    {
+        assert(node.node_type == AstNodeType::UniformGroup);
+
+        for (uint32_t member_node_index : node.struct_declaration.member_nodes)
+        {
+            AstNode& member_node = ast->nodes[member_node_index];
+            const Type* member_type = get_type(ast->type_check_info, member_node.struct_member.type_descriptor);
+
+            member_node.struct_member.is_texture = member_type->kind == TypeKind::BuiltinTexture;
+            member_node.struct_member.is_sampler = member_type->kind == TypeKind::BuiltinSampler;
+        }
+    }
+
     void type_check_root_node(const Ast* ast, const AstNode& node)
     {
         switch (node.node_type)
@@ -1451,6 +1583,8 @@ namespace tungsten::types
                 break;
             case AstNodeType::UniformGroup: {
                 const Type* type = create_struct_type(ast, node);
+                // TODO: Remove the use of const_cast
+                annotate_uniform_group(const_cast<Ast*>(ast), const_cast<AstNode&>(node));
                 if (type != &NULL_TYPE)
                 {
                     scope_add_variable(ast->type_check_info, type, type->user_type.name);

@@ -117,6 +117,22 @@ namespace tungsten::parser
         return "__unknown";
     }
 
+    TypeDescriptor consume_type(lexer::LexerInfo* info)
+    {
+        TypeDescriptor descriptor{};
+        descriptor.type_name = consume_name(info);
+
+        lexer::Token token = lexer::peek_next_token(info);
+        if (token.type == lexer::TokenType::Operator && token.op == lexer::Operator::Less)
+        {
+            consume_operator(info, lexer::Operator::Less);
+            descriptor.template_type_name = consume_name(info);
+            consume_operator(info, lexer::Operator::Greater);
+        }
+
+        return descriptor;
+    }
+
     std::optional<std::string_view> try_consume_string(lexer::LexerInfo* info)
     {
         lexer::Token token = lexer::peek_next_token(info);
@@ -257,7 +273,7 @@ namespace tungsten::parser
                 default: assert(false);
             }
 
-            member_node.struct_member.type_name = consume_name(ast->lexer_info);
+            member_node.struct_member.type_descriptor = consume_type(ast->lexer_info);
             member_node.struct_member.name = consume_name(ast->lexer_info);
 
             ast->node_children.push_back(ast->nodes.size() - 1);
@@ -617,13 +633,13 @@ namespace tungsten::parser
     }
 
     [[nodiscard]]
-    uint32_t parse_variable_declaration(Ast* ast, std::string_view type)
+    uint32_t parse_variable_declaration(Ast* ast, TypeDescriptor type_descriptor)
     {
         push_source_location(lexer::peek_prev_token(ast->lexer_info).byte_offset);
 
         AstNode& decl_node = ast_push_node(ast);
         decl_node.node_type = AstNodeType::VariableDeclaration;
-        decl_node.variable_declaration.type_name = type;
+        decl_node.variable_declaration.type_descriptor = type_descriptor;
         decl_node.variable_declaration.name = consume_name(ast->lexer_info);
 
         uint32_t decl_node_index = ast->nodes.size() - 1;
@@ -681,7 +697,7 @@ namespace tungsten::parser
     uint32_t parse_variable_declaration(Ast* ast)
     {
         bool is_variable_const = try_consume_keyword(ast->lexer_info, lexer::Keyword::Const);
-        uint32_t decl_node_index = parse_variable_declaration(ast, consume_name(ast->lexer_info));
+        uint32_t decl_node_index = parse_variable_declaration(ast, consume_type(ast->lexer_info));
 
         AstNode& decl_node = ast->nodes[decl_node_index];
         assert(decl_node.node_type == AstNodeType::VariableDeclaration);
@@ -819,7 +835,7 @@ namespace tungsten::parser
 
         consume_keyword(ast->lexer_info, lexer::Keyword::For);
         consume_punctuation(ast->lexer_info, '(');
-        for_node.for_loop.init_expression = parse_variable_declaration(ast, consume_name(ast->lexer_info));
+        for_node.for_loop.init_expression = parse_variable_declaration(ast, consume_type(ast->lexer_info));
         consume_punctuation(ast->lexer_info, ';');
         for_node.for_loop.comp_expression = parse_expression(ast);
         consume_punctuation(ast->lexer_info, ';');
@@ -917,15 +933,20 @@ namespace tungsten::parser
             switch (token.type)
             {
                 case lexer::TokenType::Name: {
-                    std::string_view word = consume_name(ast->lexer_info);
+                    TypeDescriptor type_descriptor = consume_type(ast->lexer_info);
                     if (lexer::peek_next_token(ast->lexer_info).type == lexer::TokenType::Name)
                     {
-                        statements.push_back(parse_variable_declaration(ast, word));
+                        statements.push_back(parse_variable_declaration(ast, type_descriptor));
                         consume_punctuation(ast->lexer_info, ';');
                     }
-                    else {
-                        statements.push_back(parse_variable_assignment(ast, word));
+                    else if (type_descriptor.template_type_name.empty())
+                    {
+                        statements.push_back(parse_variable_assignment(ast, type_descriptor.type_name));
                         consume_punctuation(ast->lexer_info, ';');
+                    }
+                    else
+                    {
+                        goto unexpected_token;
                     }
                     continue;
                 }
@@ -1006,7 +1027,7 @@ namespace tungsten::parser
 
         AstNode& function_node = ast_push_node(ast);
         function_node.node_type = AstNodeType::FunctionDeclaration;
-        function_node.function_declaration.return_type_name = consume_name(ast->lexer_info);
+        function_node.function_declaration.return_type_descriptor = consume_type(ast->lexer_info);
         function_node.function_declaration.name = consume_name(ast->lexer_info);
 
         uint32_t function_node_index = ast->nodes.size() - 1;
@@ -1028,7 +1049,7 @@ namespace tungsten::parser
 
             AstNode& function_arg_node = ast_push_node(ast);
             function_arg_node.node_type = AstNodeType::FunctionArgument;
-            function_arg_node.function_argument.type_name = consume_name(ast->lexer_info);
+            function_arg_node.function_argument.type_descriptor = consume_type(ast->lexer_info);
             function_arg_node.function_argument.name = consume_name(ast->lexer_info);
 
             try_consume_attributes(ast->lexer_info, ast->node_attributes);
@@ -1187,16 +1208,16 @@ namespace tungsten::parser
                 if (node.node_type == AstNodeType::StructMember)       std::cout << "struct_member ";
                 if (node.node_type == AstNodeType::UniformGroupMember) std::cout << "uniform_group_member ";
                 if (node.node_type == AstNodeType::VertexGroupMember)  std::cout << "vertex_group_member ";
-                std::cout << node.struct_member.type_name << ' ' << node.struct_member.name;
+                std::cout << node.struct_member.type_descriptor.to_string() << ' ' << node.struct_member.name;
                 break;
 
             case AstNodeType::FunctionDeclaration:
-                std::cout << "function_declaration " << node.function_declaration.return_type_name << ' ' << node.function_declaration.name;
+                std::cout << "function_declaration " << node.function_declaration.return_type_descriptor.to_string() << ' ' << node.function_declaration.name;
                 print_ast_nodes(node.function_declaration.argument_nodes);
                 print_ast_node(ast, node.function_declaration.body, indent + 1);
                 break;
             case AstNodeType::FunctionArgument:
-                std::cout << "function_argument " << node.function_argument.type_name << ' ' << node.function_argument.name;
+                std::cout << "function_argument " << node.function_argument.type_descriptor.to_string() << ' ' << node.function_argument.name;
                 break;
             case AstNodeType::FunctionBody:
                 std::cout << "function_body";
@@ -1209,14 +1230,14 @@ namespace tungsten::parser
                 if (node.variable_declaration.is_const)     std::cout << "const ";
                 if (node.variable_declaration.is_array_declaration)
                 {
-                    std::cout << node.variable_declaration.type_name;
+                    std::cout << node.variable_declaration.type_descriptor.to_string();
                     std::cout << "[" << node.variable_declaration.array_size_str << "] ";
                     std::cout << node.variable_declaration.name;
                     print_ast_nodes(node.variable_declaration.array_expressions);
                 }
                 else
                 {
-                    std::cout << node.variable_declaration.type_name << ' ' << node.variable_declaration.name;
+                    std::cout << node.variable_declaration.type_descriptor.to_string() << ' ' << node.variable_declaration.name;
                     print_ast_node(ast, node.variable_declaration.expression, indent + 1);
                 }
                 break;
