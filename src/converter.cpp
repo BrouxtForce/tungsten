@@ -825,107 +825,6 @@ namespace tungsten::converter
         }
     }
 
-    void output_uniform_group_reflection(const Ast* ast, const AstNode& node, std::ostream& stream)
-    {
-        assert(node.node_type == AstNodeType::UniformGroup);
-
-        stream << "uniform_group " << node.struct_declaration.name << ' ';
-        stream << node.struct_declaration.binding << " { ";
-
-        bool is_first_child = true;
-        for (uint32_t member_node_index : node.struct_declaration.member_nodes)
-        {
-            const AstNode& member_node = ast->nodes[member_node_index];
-            assert(member_node.node_type == AstNodeType::UniformGroupMember);
-
-            if (!is_first_child) stream << ", ";
-            is_first_child = false;
-
-            stream << member_node.struct_member.type_descriptor.to_string() << ' ' << member_node.struct_member.name;
-        }
-        stream << " }\n";
-    }
-
-    void output_space_and_user_attributes(const AstNode& node, std::ostream& stream)
-    {
-        bool has_outputted_space = false;
-        for (const Attribute& attribute : node.attributes)
-        {
-            if (!has_outputted_space)
-            {
-                stream << ' ';
-                has_outputted_space = true;
-            }
-            stream << attribute.name;
-        }
-    }
-
-    void output_vertex_group_reflection(const Ast* ast, const AstNode& node, std::ostream& stream)
-    {
-        assert(node.node_type == AstNodeType::VertexGroup);
-
-        stream << "vertex_group " << node.struct_declaration.name;
-        output_space_and_user_attributes(node, stream);
-        stream << " { ";
-
-        bool is_first_child = true;
-        for (uint32_t member_node_index : node.struct_declaration.member_nodes)
-        {
-            const AstNode& member_node = ast->nodes[member_node_index];
-            assert(member_node.node_type == AstNodeType::VertexGroupMember);
-
-            if (!is_first_child) stream << ", ";
-            is_first_child = false;
-
-            stream << member_node.struct_member.type_descriptor.to_string() << ' ' << member_node.struct_member.name;
-            output_space_and_user_attributes(member_node, stream);
-        }
-        stream << " }\n";
-    }
-
-    void output_function_declaration_reflection(const Ast* ast, const AstNode& node, std::ostream& stream)
-    {
-        if (has_attribute(&node, "vertex"))
-        {
-            stream << "vertex_function " << node.function_declaration.name;
-
-            for (uint32_t function_arg_node_index : node.function_declaration.argument_nodes)
-            {
-                const AstNode& function_arg_node = ast->nodes[function_arg_node_index];
-                assert(function_arg_node.node_type == AstNodeType::FunctionArgument);
-
-                if (function_arg_node.attributes.size == 0)
-                {
-                    stream << ' ' << function_arg_node.function_argument.type_descriptor.to_string();
-                }
-            }
-
-            stream << '\n';
-        }
-        else if (has_attribute(&node, "fragment"))
-        {
-            stream << "fragment_function " << node.function_declaration.name << '\n';
-        }
-    }
-
-    void output_root_node_reflection(const Ast* ast, const AstNode& node, std::ostream& stream)
-    {
-        switch (node.node_type)
-        {
-            case AstNodeType::UniformGroup:
-                output_uniform_group_reflection(ast, node, stream);
-                break;
-            case AstNodeType::VertexGroup:
-                output_vertex_group_reflection(ast, node, stream);
-                break;
-            case AstNodeType::FunctionDeclaration:
-                output_function_declaration_reflection(ast, node, stream);
-                break;
-            default:
-                break;
-        }
-    }
-
     void to_msl(const Ast* ast, std::ostream& stream)
     {
         stream << "#include <metal_stdlib>\n\nusing namespace metal;\n";
@@ -945,14 +844,6 @@ namespace tungsten::converter
             if (!is_first_node) stream << '\n';
             is_first_node = false;
             output_root_node(ast, ast->nodes[root_node_index], stream, Backend::WGSL);
-        }
-    }
-
-    void to_reflection(const Ast* ast, std::ostream& stream)
-    {
-        for (uint32_t root_node_index : ast->root_nodes)
-        {
-            output_root_node_reflection(ast, ast->nodes[root_node_index], stream);
         }
     }
 

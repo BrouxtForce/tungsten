@@ -5,11 +5,7 @@
 #include <sstream>
 #include <vector>
 
-#include "tungsten/utility.hpp"
-#include "tungsten/error.hpp"
-#include "tungsten/parser.hpp"
-#include "tungsten/converter.hpp"
-#include "tungsten/types.hpp"
+#include "tungsten/tungsten.hpp"
 
 struct Arguments {
     int index = 1;
@@ -43,6 +39,51 @@ struct Arguments {
         return index >= argc;
     }
 };
+
+void print_reflection_info(const tungsten::parser::Ast* ast)
+{
+    tungsten::reflection::ReflectionInfo info = tungsten::reflection::get_reflection_info(ast);
+
+    for (const auto& uniform_group : info.uniform_groups)
+    {
+        std::cout << "uniform_group binding(" << uniform_group.binding << ") " << uniform_group.name << '\n';
+        for (const auto& member : uniform_group.members)
+        {
+            std::cout << "    ";
+            for (const auto& attribute : member.attributes)
+            {
+                std::cout << "[" << attribute.name << "] ";
+            }
+            std::cout << member.type_name << ' ' << member.name << '\n';
+        }
+    }
+
+    for (const auto& vertex_group : info.vertex_groups)
+    {
+        std::cout << "vertex_group " << vertex_group.name << '\n';
+        for (const auto& member : vertex_group.members)
+        {
+            std::cout << "    ";
+            for (const auto& attribute : member.attributes)
+            {
+                std::cout << "[" << attribute.name << "] ";
+            }
+            std::cout << member.type_name << ' ' << member.name << '\n';
+        }
+    }
+
+    for (const auto& function : info.functions)
+    {
+        for (const auto& attribute : function.attributes)
+        {
+            std::cout << "[" << attribute.name << "] ";
+        }
+        if (function.is_vertex_function)   std::cout << "vertex_";
+        if (function.is_fragment_function) std::cout << "fragment_";
+        if (function.is_compute_function)  std::cout << "compute_";
+        std::cout << "function " << function.name << '(' << function.vertex_input << ")\n";
+    }
+}
 
 int main(int argc, char** argv)
 {
@@ -151,7 +192,7 @@ int main(int argc, char** argv)
         else if (should_print_reflection)
         {
             converter::msl_assign_bindings(ast);
-            converter::to_reflection(ast, output_stream);
+            print_reflection_info(ast);
         }
         else
         {
@@ -235,7 +276,7 @@ int main(int argc, char** argv)
         {
             std::stringstream reflection_stream;
             converter::msl_assign_bindings(ast);
-            converter::to_reflection(ast, reflection_stream);
+            print_reflection_info(ast);
             fail = fail || !utility::write_file(reflection_output_filepath, reflection_stream.str());
         }
 

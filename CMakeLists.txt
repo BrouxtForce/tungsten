@@ -12,6 +12,7 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         src/lexer.cpp
         src/main.cpp
         src/parser.cpp
+        src/reflection.cpp
         src/types.cpp
         src/utility.cpp
     )
@@ -21,6 +22,7 @@ else()
         src/error.cpp
         src/lexer.cpp
         src/parser.cpp
+        src/reflection.cpp
         src/types.cpp
         src/utility.cpp
     )
