@@ -33,6 +33,9 @@ namespace tungsten::reflection
 
         VertexGroupReflection& reflection = info.vertex_groups.emplace_back();
         reflection.name = node.struct_declaration.name;
+        reflection.attributes.assign_range(
+            std::ranges::subrange(node.attributes.begin(), node.attributes.end())
+        );
 
         // TODO: This is basically the same as the uniform group implementation, and even outputs to the same type
         reflection.members.reserve(node.struct_declaration.member_nodes.size);

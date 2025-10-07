@@ -24,6 +24,7 @@ namespace tungsten::reflection
     {
         std::string name;
         std::vector<StructMemberReflection> members;
+        std::vector<parser::Attribute> attributes;
     };
 
     struct FunctionReflection
