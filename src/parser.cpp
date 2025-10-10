@@ -1160,6 +1160,9 @@ namespace tungsten::parser
             }
         }
 
+        source_location_stack.clear();
+        node_index_stack.clear();
+
         return ast;
     }
 

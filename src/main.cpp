@@ -4,6 +4,7 @@
 #include <cassert>
 #include <sstream>
 #include <vector>
+#include <span>
 
 #include "tungsten/tungsten.hpp"
 
@@ -40,6 +41,14 @@ struct Arguments {
     }
 };
 
+void print_attributes(std::span<const tungsten::parser::Attribute> attributes)
+{
+    for (const tungsten::parser::Attribute& attribute : attributes)
+    {
+        std::cout << "[" << attribute.name << "] ";
+    }
+}
+
 void print_reflection_info(const tungsten::parser::Ast* ast)
 {
     tungsten::reflection::ReflectionInfo info = tungsten::reflection::get_reflection_info(ast);
@@ -50,34 +59,26 @@ void print_reflection_info(const tungsten::parser::Ast* ast)
         for (const auto& member : uniform_group.members)
         {
             std::cout << "    ";
-            for (const auto& attribute : member.attributes)
-            {
-                std::cout << "[" << attribute.name << "] ";
-            }
+            print_attributes(member.attributes);
             std::cout << member.type_name << ' ' << member.name << '\n';
         }
     }
 
     for (const auto& vertex_group : info.vertex_groups)
     {
+        print_attributes(vertex_group.attributes);
         std::cout << "vertex_group " << vertex_group.name << '\n';
         for (const auto& member : vertex_group.members)
         {
             std::cout << "    ";
-            for (const auto& attribute : member.attributes)
-            {
-                std::cout << "[" << attribute.name << "] ";
-            }
+            print_attributes(member.attributes);
             std::cout << member.type_name << ' ' << member.name << '\n';
         }
     }
 
     for (const auto& function : info.functions)
     {
-        for (const auto& attribute : function.attributes)
-        {
-            std::cout << "[" << attribute.name << "] ";
-        }
+        print_attributes(function.attributes);
         if (function.is_vertex_function)   std::cout << "vertex_";
         if (function.is_fragment_function) std::cout << "fragment_";
         if (function.is_compute_function)  std::cout << "compute_";
